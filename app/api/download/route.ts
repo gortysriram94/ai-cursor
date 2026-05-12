@@ -14,7 +14,7 @@ const BASE = `https://github.com/${REPO}/releases/latest/download`;
 
 // GitHub Actions names files AIcursor-windows-vX.X.X.zip / AIcursor-macos-vX.X.X.dmg
 // "latest" release always has the newest — filenames are fixed per release tag.
-const VERSION  = "v0.1.0";
+const VERSION  = "v0.2.0";
 const WIN_URL  = `${BASE}/AIcursor-windows-${VERSION}.zip`;
 const MAC_URL  = `${BASE}/AIcursor-macos-${VERSION}.dmg`;
 
