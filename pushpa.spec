@@ -13,9 +13,8 @@ a = Analysis(
         # ("ollama/ollama.exe", "ollama"),
 
         # Icon assets
-        ("icons/*.ico", "icons"),
-        ("icons/*.cur", "icons"),
-        ("icons/*.png", "icons"),
+        ("icons/icon.ico",  "icons"),
+        ("icons/icon.png",  "icons"),
     ],
     hiddenimports=[
         # Brain
