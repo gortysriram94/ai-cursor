@@ -12,11 +12,10 @@ import { NextRequest, NextResponse } from "next/server";
 const REPO = "gortysriram94/ai-cursor";
 const BASE = `https://github.com/${REPO}/releases/latest/download`;
 
-// GitHub Actions names files AIcursor-windows-vX.X.X.zip / AIcursor-macos-vX.X.X.dmg
-// "latest" release always has the newest — filenames are fixed per release tag.
-const VERSION  = "v0.2.0";
-const WIN_URL  = `${BASE}/AIcursor-windows-${VERSION}.zip`;
-const MAC_URL  = `${BASE}/AIcursor-macos-${VERSION}.dmg`;
+// Fixed filenames — GitHub /releases/latest/download/ always serves the newest release.
+// Never needs updating when you ship a new version.
+const WIN_URL = `${BASE}/AIcursor-windows.zip`;
+const MAC_URL = `${BASE}/AIcursor-macos.dmg`;
 
 function detectPlatform(ua: string): "windows" | "macos" {
   return /mac os|macintosh/i.test(ua) ? "macos" : "windows";

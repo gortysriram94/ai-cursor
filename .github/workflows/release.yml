@@ -33,12 +33,12 @@ jobs:
         run: pyinstaller pushpa.spec --noconfirm
 
       - name: Zip
-        run: Compress-Archive -Path dist\AIcursor-windows\* -DestinationPath dist\AIcursor-windows-${{ env.VERSION }}.zip
+        run: Compress-Archive -Path dist\AIcursor-windows\* -DestinationPath dist\AIcursor-windows.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/AIcursor-windows-*.zip
+          path: dist/AIcursor-windows.zip
 
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
@@ -79,22 +79,22 @@ jobs:
             --icon "AIcursor.app" 175 190 \
             --hide-extension "AIcursor.app" \
             --app-drop-link 425 190 \
-            "dist/AIcursor-macos-${{ env.VERSION }}.dmg" \
+            "dist/AIcursor-macos.dmg" \
             "dist/AIcursor.app" || echo "create-dmg done (non-zero is normal)"
 
       - name: Zip as fallback if DMG missing
         run: |
-          if [ ! -f "dist/AIcursor-macos-${{ env.VERSION }}.dmg" ]; then
+          if [ ! -f "dist/AIcursor-macos.dmg" ]; then
             echo "No DMG — creating zip fallback"
-            cd dist && zip -r "AIcursor-macos-${{ env.VERSION }}.zip" AIcursor.app
+            cd dist && zip -r "AIcursor-macos.zip" AIcursor.app
           fi
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-build
           path: |
-            dist/AIcursor-macos-*.dmg
-            dist/AIcursor-macos-*.zip
+            dist/AIcursor-macos.dmg
+            dist/AIcursor-macos.zip
 
   # ── Publish ────────────────────────────────────────────────────────────────
   publish:
@@ -124,13 +124,13 @@ jobs:
             ## AI Cursor ${{ env.VERSION }}
 
             ### Windows
-            1. Download `AIcursor-windows-*.zip`
+            1. Download `AIcursor-windows.zip`
             2. Extract — right-click → **Extract All**
             3. Open the folder and double-click **AIcursor.exe**
             4. Press **Alt+A** on any text to start
 
             ### macOS
-            1. Download `AIcursor-macos-*.dmg`
+            1. Download `AIcursor-macos.dmg`
             2. Open the DMG, drag **AI Cursor** to Applications
             3. Press **Option+A** on any text to start
           files: dist/*
