@@ -1,7 +1,5 @@
 name: Build & Release
 
-# Runs when you push a tag like v0.2.0
-# Or manually from GitHub → Actions → Run workflow
 on:
   push:
     tags:
@@ -11,10 +9,13 @@ on:
       version:
         description: "Version tag (e.g. v0.2.0)"
         required: true
-        default: "v0.1.0"
+        default: "v0.2.0"
+
+env:
+  VERSION: ${{ github.ref_name || inputs.version }}
 
 jobs:
-  # ── Windows build ─────────────────────────────────────────────────────────
+  # ── Windows ────────────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
     steps:
@@ -22,48 +23,61 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"   # 3.12 = most stable with pywin32 + pyinstaller
 
       - name: Install dependencies
-        run: |
-          pip install pyinstaller pillow requests pyautogui pyperclip pynput psutil pywin32 pdfplumber
+        run: pip install pyinstaller pillow requests pyautogui pyperclip pynput psutil pywin32 pdfplumber
 
-      - name: Build with PyInstaller
+      - name: Build
         run: pyinstaller pushpa.spec --noconfirm
 
-      - name: Zip output
-        run: |
-          Compress-Archive -Path dist\AIcursor-windows\* -DestinationPath dist\AIcursor-windows-${{ github.ref_name || inputs.version }}.zip
+      - name: Zip
+        run: Compress-Archive -Path dist\AIcursor-windows\* -DestinationPath dist\AIcursor-windows-${{ env.VERSION }}.zip
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: dist/AIcursor-windows-*.zip
 
-  # ── macOS build ──────────────────────────────────────────────────────────
+  # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-13          # macOS 13 (Ventura) — more stable than macos-latest for pyobjc
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"  # pyobjc works best on 3.12
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
-          pip install pyinstaller pillow requests pyautogui pyperclip pynput pdfplumber \
-            pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
+          pip install --upgrade pip
+          pip install pyinstaller pillow requests pyautogui pyperclip pynput pdfplumber
+          pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz
+          # ApplicationServices is optional — skip if it fails
+          pip install pyobjc-framework-ApplicationServices || echo "ApplicationServices skipped"
+
+      - name: Generate proper .icns using macOS iconutil
+        run: |
+          # Build an iconset from the PNG using macOS built-in tools
+          mkdir -p icons/icon.iconset
+          python3 -c "
+          from PIL import Image
+          src = Image.open('icons/icon.png').convert('RGBA')
+          sizes = [16,32,64,128,256,512]
+          for s in sizes:
+              src.resize((s,s), Image.LANCZOS).save(f'icons/icon.iconset/icon_{s}x{s}.png')
+              src.resize((s*2,s*2), Image.LANCZOS).save(f'icons/icon.iconset/icon_{s}x{s}@2x.png')
+          "
+          iconutil -c icns icons/icon.iconset -o icons/icon.icns
+          echo "icon.icns generated via iconutil"
 
       - name: Build with PyInstaller
         run: pyinstaller pushpa_macos.spec --noconfirm
 
-      - name: Install create-dmg
-        run: brew install create-dmg
-
-      - name: Create DMG
+      - name: Package as DMG
         run: |
+          brew install create-dmg
           create-dmg \
             --volname "AI Cursor" \
             --volicon "icons/icon.icns" \
@@ -72,60 +86,60 @@ jobs:
             --icon "AIcursor.app" 175 190 \
             --hide-extension "AIcursor.app" \
             --app-drop-link 425 190 \
-            "dist/AIcursor-macos-${{ github.ref_name || inputs.version }}.dmg" \
+            "dist/AIcursor-macos-${{ env.VERSION }}.dmg" \
             "dist/AIcursor.app" \
-          || true   # create-dmg exits non-zero sometimes even on success
+          || echo "create-dmg exited non-zero (often normal)"
 
-      - name: Fallback — zip if DMG failed
+      - name: Fallback to zip if DMG missing
         run: |
-          if [ ! -f "dist/AIcursor-macos-${{ github.ref_name || inputs.version }}.dmg" ]; then
-            cd dist && zip -r AIcursor-macos-${{ github.ref_name || inputs.version }}.zip AIcursor.app
+          if [ ! -f "dist/AIcursor-macos-${{ env.VERSION }}.dmg" ]; then
+            echo "DMG not found — zipping .app instead"
+            cd dist && zip -r "AIcursor-macos-${{ env.VERSION }}.zip" AIcursor.app
           fi
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: macos-build
           path: |
             dist/AIcursor-macos-*.dmg
             dist/AIcursor-macos-*.zip
 
-  # ── Publish release ───────────────────────────────────────────────────────
+  # ── Publish ────────────────────────────────────────────────────────────────
   publish:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download Windows build
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: windows-build
           path: dist
 
-      - name: Download macOS build
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: macos-build
           path: dist
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: List files to publish
+        run: ls -lh dist/
+
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || inputs.version }}
-          name: AI Cursor ${{ github.ref_name || inputs.version }}
+          tag_name: ${{ env.VERSION }}
+          name: AI Cursor ${{ env.VERSION }}
           body: |
-            ## AI Cursor ${{ github.ref_name || inputs.version }}
+            ## AI Cursor ${{ env.VERSION }}
 
             ### Windows
             1. Download `AIcursor-windows-*.zip`
-            2. Extract the zip — right-click → Extract All
-            3. Open the folder and double-click `AIcursor.exe`
+            2. Extract — right-click → **Extract All**
+            3. Open the folder, double-click **AIcursor.exe**
             4. Press **Alt+A** on any text to start
 
             ### macOS
-            1. Download `AIcursor-macos-*.dmg` (or `.zip`)
-            2. Open the DMG and drag AI Cursor to Applications
+            1. Download `AIcursor-macos-*.dmg`
+            2. Open the DMG, drag **AI Cursor** to Applications
             3. Press **Option+A** on any text to start
           files: dist/*
           make_latest: true
