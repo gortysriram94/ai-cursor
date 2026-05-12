@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pushpa Browser Agent</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      width: 350px;
+      min-height: 400px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      padding: 16px;
+    }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #333;
+    }
+    
+    .logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #FF6B00, #FF8C42);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+    
+    .title {
+      flex: 1;
+    }
+    
+    .title h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+    }
+    
+    .title p {
+      font-size: 12px;
+      color: #888;
+      margin-top: 2px;
+    }
+    
+    .status {
+      padding: 12px;
+      background: #252525;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+    }
+    
+    .status-label {
+      font-size: 13px;
+      color: #999;
+    }
+    
+    .status-value {
+      font-size: 13px;
+      font-weight: 500;
+    }
+    
+    .status-value.connected {
+      color: #4CAF50;
+    }
+    
+    .status-value.disconnected {
+      color: #F44336;
+    }
+    
+    .status-value.idle {
+      color: #888;
+    }
+    
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    
+    .status-indicator.connected {
+      background: #4CAF50;
+      box-shadow: 0 0 8px #4CAF50;
+    }
+    
+    .status-indicator.disconnected {
+      background: #F44336;
+    }
+    
+    .current-task {
+      background: #252525;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+    
+    .task-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    
+    .task-progress {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 8px;
+    }
+    
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: #333;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #FF6B00, #FF8C42);
+      transition: width 0.3s ease;
+    }
+    
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #FF6B00, #FF8C42);
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(255, 107, 0, 0.3);
+    }
+    
+    .btn-secondary {
+      background: #252525;
+      color: #e0e0e0;
+      border: 1px solid #333;
+    }
+    
+    .btn-secondary:hover {
+      background: #2a2a2a;
+      border-color: #444;
+    }
+    
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .footer {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #333;
+      text-align: center;
+    }
+    
+    .footer-link {
+      color: #FF6B00;
+      text-decoration: none;
+      font-size: 12px;
+    }
+    
+    .footer-link:hover {
+      text-decoration: underline;
+    }
+    
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">🤖</div>
+    <div class="title">
+      <h1>Pushpa</h1>
+      <p>Browser Agent</p>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="status-row">
+      <span class="status-label">Connection</span>
+      <span class="status-value" id="connectionStatus">
+        <span class="status-indicator"></span>
+        Checking...
+      </span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Current Page</span>
+      <span class="status-value" id="currentPage">Loading...</span>
+    </div>
+  </div>
+
+  <div class="current-task hidden" id="currentTask">
+    <div class="task-name" id="taskName">No active task</div>
+    <div class="task-progress" id="taskProgress">0/0 steps complete</div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-primary" id="openChatBtn">
+      <span>💬</span>
+      Open Chat Interface
+    </button>
+    <button class="btn btn-secondary" id="reconnectBtn" disabled>
+      <span>🔄</span>
+      Reconnect
+    </button>
+    <button class="btn btn-secondary" id="pauseBtn" disabled>
+      <span>⏸️</span>
+      Pause Automation
+    </button>
+  </div>
+
+  <div class="footer">
+    <a href="#" class="footer-link" id="settingsLink">Settings</a>
+    <span style="color: #555; margin: 0 8px;">•</span>
+    <a href="#" class="footer-link" id="helpLink">Help</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

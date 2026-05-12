@@ -1,0 +1,37 @@
+# Vercel
+.vercel
+
+# Next.js
+.next/
+out/
+
+# Dependencies
+node_modules/
+electron-agent/node_modules/
+
+# Python build artifacts
+dist/
+build/
+__pycache__/
+*.pyc
+*.pyo
+*.spec.bak
+
+# App data files (user-specific, not source code)
+pushpa.log
+pushpa_prev.log
+pushpa_history.json
+pushpa_prefs.json
+pushpa_style.json
+pushpa_hotkeys.json
+pushpa_memory.json
+pushpa_rules.json
+
+# Environment / secrets
+.env
+.env.local
+.env*.local
+
+# OS
+.DS_Store
+Thumbs.db

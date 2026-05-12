@@ -1,0 +1,21 @@
+id,customer_name,email,phone,ssn,product,category,review,rating,sentiment,date,country,zip_code,account_id,notes
+1,Alice Johnson,alice@example.com,555-867-5309,123-45-6789,GPT-4o API Access,AI Tools,"Excellent product, reduced our token costs by 40% immediately.",5,positive,2024-01-15,USA,94105,ACC-001,
+2,Bob Smith,bob.smith@corp.io,+1-800-555-0199,,Claude Sonnet API,AI Tools,"Great value for the price. Integration was smooth.",4,positive,2024-01-16,USA,10001,ACC-002,follow up
+3,Alice Johnson,alice@example.com,555-867-5309,123-45-6789,GPT-4o API Access,AI Tools,"Excellent product, reduced our token costs by 40% immediately.",5,positive,2024-01-15,USA,94105,ACC-001,
+4,Carol White,carol.w@techco.com,,(555) 234-5678,Embeddings API,AI Tools,"Token counting was off at first but support fixed it fast.",3,neutral,2024-01-17,Canada,M5V 3A8,ACC-003,
+5,Dave Lee,d.lee@startup.ai,555-999-1234,,Gemini 1.5 Pro,LLM APIs,"Saved us $800/month on our RAG pipeline. Incredible ROI.",5,positive,2024-01-18,USA,98101,ACC-004,
+6,,,,,,,,,,,,,,,
+7,Eve Martinez,eve@agency.net,+44-20-7946-0958,,Claude Haiku API,AI Tools,"Decent speed but context window felt limiting for our use case.",3,neutral,2024-01-19,UK,,ACC-005,
+8,Frank Chen,frank.chen@llm.io,frank.chen@llm.io,,Llama 3.1 405B,Open Source LLMs,"Open weights + low cost = best combo for batch processing.",5,positive,2024-01-20,USA,94107,ACC-006,pricing query
+9,Bob Smith,bob.smith@corp.io,+1-800-555-0199,,Claude Sonnet API,AI Tools,"Great value for the price. Integration was smooth.",4,positive,2024-01-16,USA,10001,ACC-002,follow up
+10,Grace Kim,grace.kim@ailab.org,555-777-2020,987-65-4321,GPT-4 Turbo,AI Tools,"The cost auditor alone justified the purchase. Highly recommend.",5,positive,2024-01-21,USA,90210,ACC-007,
+11,,,,,,,,,,,,,,,
+12,Henry Park,h.park@mlops.dev,h.park@mlops.dev,,(none),(none),(none),(none),(none),(none),(none),(none),(none),(none)
+13,Isaac Brown,isaac.b@dataco.com,555-444-8888,,Gemini 1.5 Flash,LLM APIs,"Fastest inference we've tested. Great for real-time apps.",4,positive,2024-01-22,USA,77001,ACC-008,
+14,Dave Lee,d.lee@startup.ai,555-999-1234,,Gemini 1.5 Pro,LLM APIs,"Saved us $800/month on our RAG pipeline. Incredible ROI.",5,positive,2024-01-18,USA,98101,ACC-004,
+15,Julia Nguyen,julia.n@nlutech.io,julia@nlutech.io,,(555) 321-9876,Embeddings API,AI Tools,"Vector search quality improved dramatically after dedup.",4,positive,2024-01-23,USA,30301,ACC-009,
+16,Kevin Tran,k.tran@scale.ai,555-123-4567,456-78-9012,GPT-4o API Access,AI Tools,"Our prompt engineering team uses this daily now.",5,positive,2024-01-24,USA,94103,ACC-010,
+17,Grace Kim,grace.kim@ailab.org,555-777-2020,987-65-4321,GPT-4 Turbo,AI Tools,"The cost auditor alone justified the purchase. Highly recommend.",5,positive,2024-01-21,USA,90210,ACC-007,
+18,,,,,,,,,,,,,,,
+19,Laura Singh,laura.s@mlflow.co,laura.s@mlflow.co,,Claude Sonnet API,AI Tools,"Batch processing use case: 60% token reduction. Wild.",5,positive,2024-01-25,India,400001,ACC-011,
+20,Mike Davis,mike.d@rag.io,mike@rag.io,,(555) 555-1234,Llama 3.1 405B,Open Source LLMs,"Self-hosted + TokenLift = near-zero inference cost.",5,positive,2024-01-26,USA,94110,ACC-012,

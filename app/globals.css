@@ -1,0 +1,145 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Dark mode (default) ─────────────────────────────────────────────────── */
+:root {
+  --accent:      #DA7756;
+  --accent-dim:  #C05E3E;
+  --accent-soft: #F0A482;
+  --surface:     #1A1611;
+  --panel:       #211E18;
+  --panel-2:     #2A2620;
+  --border:      #38332A;
+  --muted:       #7A6E60;
+  --text:        #F0EAE0;
+  --text-dim:    #C8BEB0;
+  --danger:      #E05C5C;
+  --warn:        #D4924A;
+  --success:     #6BAA7A;
+  --info:        #5E8FC8;
+}
+
+/* ── Light mode — applied via data-theme="light" on <html> ──────────────── */
+[data-theme="light"] {
+  --accent:      #C05E3E;
+  --accent-dim:  #A34E32;
+  --accent-soft: #E8876A;
+  --surface:     #F5F2EE;
+  --panel:       #ECEAE5;
+  --panel-2:     #E2DED8;
+  --border:      #CECCCA;
+  --muted:       #6B6460;
+  --text:        #1A1611;
+  --text-dim:    #3D3630;
+  --danger:      #C0392B;
+  --warn:        #B7790A;
+  --success:     #2E7D50;
+  --info:        #1A5F99;
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+html {
+  background: var(--surface);
+  color: var(--text);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--surface);
+  color: var(--text);
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--accent);
+  color: var(--surface);
+}
+
+/* ── Print ───────────────────────────────────────────────────────────────── */
+@media print {
+  nav, [data-no-print] { display: none !important; }
+  body { background: white !important; color: black !important; font-size: 12px; }
+  [data-print-report] { display: block !important; }
+  * { color: black !important; border-color: #ccc !important; background: white !important; }
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Mono font ───────────────────────────────────────────────────────────── */
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* ── Opacity utilities that Tailwind can't do with CSS vars ──────────────── */
+/* bg-panel/20, bg-panel/30, bg-accent/5 etc. need special handling        */
+/* because Tailwind uses alpha syntax that requires known hex values.       */
+/* We override these selectively so they still work with theme switching.   */
+
+.bg-panel\/20  { background-color: color-mix(in srgb, var(--panel) 20%, transparent) !important; }
+.bg-panel\/30  { background-color: color-mix(in srgb, var(--panel) 30%, transparent) !important; }
+.bg-accent\/5  { background-color: color-mix(in srgb, var(--accent) 5%, transparent) !important; }
+.bg-accent\/10 { background-color: color-mix(in srgb, var(--accent) 10%, transparent) !important; }
+
+/* Opacity modifier on text — muted/60 etc */
+.text-muted\/60 { color: color-mix(in srgb, var(--muted) 60%, transparent) !important; }
+
+/* ── Transition all themed elements smoothly ─────────────────────────────── */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
+}
+
+/* But don't slow down transforms/opacity with the above */
+*[class*="transition-transform"],
+*[class*="transition-opacity"],
+*[class*="animate-"] {
+  transition-property: transform, opacity;
+}
+
+/* ── Keyframe animations ─────────────────────────────────────────────────── */
+@keyframes livepulse {
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  50%       { opacity: 0.6; transform: scale(1.25); box-shadow: 0 0 0 5px transparent; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+/* ── Tool page responsive layout helpers ─────────────────────────────────── */
+.tl-tab-bar {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+.tl-tab-bar::-webkit-scrollbar { display: none; }
+.tl-tab-bar button { flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  .tl-col-1          { grid-template-columns: 1fr !important; }
+  .tl-col-1-3        { grid-template-columns: 1fr !important; }
+  .tl-col-2-4        { grid-template-columns: repeat(2, 1fr) !important; }
+  .tl-col-2-pricing  { grid-template-columns: repeat(2, 1fr) !important; max-width: 100% !important; }
+  .tl-main-pad       { padding: 24px 16px !important; }
+  .tl-tier-badge     { display: none !important; }
+  .tl-credits-badge  { font-size: 10px !important; padding: 2px 8px !important; }
+  .tl-export-row     { flex-direction: column !important; }
+  .tl-dropzone-actions { flex-direction: column !important; align-items: center !important; }
+}

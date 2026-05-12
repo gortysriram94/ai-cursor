@@ -1,0 +1,206 @@
+"""
+config.py — constants, env loading, API keys, file paths, hotkey maps.
+No mutable state lives here.
+"""
+
+import os
+import sys
+from pathlib import Path
+
+
+# ── Load .env.local ────────────────────────────────────────────────────────────
+
+def load_env():
+    env_path = Path(__file__).parent / ".env.local"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip())
+
+
+load_env()
+
+
+# ── Platform availability ──────────────────────────────────────────────────────
+
+try:
+    import win32gui
+    import win32process
+    import psutil
+    WIN32_AVAILABLE = True
+except ImportError:
+    WIN32_AVAILABLE = False
+
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+
+APP_DIR           = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+OLLAMA_EXE        = APP_DIR / "ollama" / "ollama.exe"
+OLLAMA_MODELS_DIR = Path(os.environ.get("APPDATA", str(APP_DIR))) / "Pushpa" / "models"
+
+LOG_FILE       = APP_DIR / "pushpa.log"
+LOG_FILE_PREV  = APP_DIR / "pushpa_prev.log"
+LOG_PROMPTS    = os.environ.get("PUSHPA_LOG_PROMPTS", "0") == "1"    # set in .env.local to debug prompts
+DEBUG_OVERLAY  = os.environ.get("PUSHPA_DEBUG_OVERLAY", "0") == "1"  # floating diagnostics HUD
+HISTORY_FILE  = APP_DIR / "pushpa_history.json"
+PREFS_FILE    = APP_DIR / "pushpa_prefs.json"
+STYLE_FILE    = APP_DIR / "pushpa_style.json"
+HOTKEYS_FILE  = APP_DIR / "pushpa_hotkeys.json"
+
+
+# ── Ollama ────────────────────────────────────────────────────────────────────
+
+OLLAMA_PORT   = 11435
+OLLAMA_BASE   = f"http://localhost:{OLLAMA_PORT}/v1"
+OLLAMA_API    = f"http://localhost:{OLLAMA_PORT}"
+OLLAMA_MODEL  = "llama2:latest"
+OLLAMA_VISION = "llava-phi3"
+
+# Lightweight model used for background context building.
+# Can be set to a smaller/faster model (e.g. "llama3.2:1b") without
+# affecting the quality of responses to user queries.
+OLLAMA_CONTEXT_MODEL = os.environ.get("OLLAMA_CONTEXT_MODEL", OLLAMA_MODEL)
+
+# How long (seconds) the brain waits before marking context stale
+# if no new observations arrive.
+CONTEXT_STALE_AFTER = int(os.environ.get("CONTEXT_STALE_AFTER", "120"))
+
+# Memory store path
+MEMORY_FILE = APP_DIR / "pushpa_memory.json"
+
+# Business rules store
+RULES_FILE = APP_DIR / "pushpa_rules.json"
+
+
+# ── NVIDIA ────────────────────────────────────────────────────────────────────
+
+NVIDIA_API_KEY      = os.environ.get("NVIDIA_API_KEY", "")
+NVIDIA_BASE         = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+NVIDIA_MODEL        = "meta/llama-3.1-8b-instruct"
+NVIDIA_VISION_MODEL = "meta/llama-3.2-11b-vision-instruct"
+
+
+# ── Jina / affiliate ─────────────────────────────────────────────────────────
+
+JINA_API_KEY       = os.environ.get("JINA_API_KEY") or os.environ.get("JINA_APi_KEY", "")
+JINA_SEARCH_URL    = "https://s.jina.ai/"
+AFFILIATE_ENDPOINT = os.environ.get("AFFILIATE_URL", "")
+
+
+# ── Hotkeys ───────────────────────────────────────────────────────────────────
+
+DEFAULT_HOTKEYS = {
+    "menu":    "alt+a",
+    "history": "alt+h",
+    "style":   "alt+t",
+    "form":    "alt+f",
+}
+
+_MOD_BITS = {
+    "alt": 0x0001, "ctrl": 0x0002, "control": 0x0002,
+    "shift": 0x0004, "win": 0x0008,
+}
+_VK_MAP = {chr(i): ord(chr(i).upper()) for i in range(ord('a'), ord('z') + 1)}
+_VK_MAP.update({str(i): 0x30 + i for i in range(10)})
+_VK_MAP.update({f"f{i}": 0x6F + i for i in range(1, 13)})
+
+
+# ── History / style limits ────────────────────────────────────────────────────
+
+MAX_HISTORY            = 20
+MAX_STYLE_SAMPLES      = 20
+MIN_SAMPLES_FOR_PROFILE = 5
+
+
+# ── Action classification sets ────────────────────────────────────────────────
+
+# Actions where inline hyperlinks make sense
+HYPERLINK_ACTIONS = {
+    "summarize", "pros_cons", "explain", "review",
+    "caption", "comment", "hashtags", "options", "improve",
+}
+
+# Result goes back into the original app (Insert ↵ is primary)
+INSERT_ACTIONS = {
+    "reply", "follow_up", "quick_reply_lead", "schedule_showing",
+    "qualify_buyer", "objection_reply", "counterpoints", "negotiation_reply",
+    "open_house_followup", "re_engagement", "urgency_message",
+    "journal_entry", "options", "custom",
+}
+
+# Result replaces the selected text (Replace ↵ is primary)
+REPLACE_ACTIONS = {
+    "polish", "shorter", "improve",
+}
+
+# Copy is the primary action
+COPY_PRIMARY_ACTIONS = {
+    "summarize", "explain", "pros_cons", "review", "caption", "hashtags",
+    "comment", "sentiment", "bull_bear", "trade_thesis", "counterarguments",
+    "inspect",
+    "hype_score", "simplify_thread", "key_catalysts", "market_impact",
+    "key_takeaways", "trade_risks", "actionable_points", "important_changes",
+    "guidance_summary", "market_reaction", "explain_indicator", "risk_summary",
+    "client_summary", "selling_points", "neighborhood_highlights",
+    "investment_potential", "luxury_tone", "family_tone", "investment_angle",
+    "instagram_caption_listing", "compare_listings", "best_for_families",
+    "explain_contract", "contract_risks",
+}
+
+# Actions where the user's personal writing style is injected
+STYLE_INJECT_ACTIONS = {
+    "reply", "follow_up", "polish", "improve", "options", "caption", "comment",
+}
+
+# Actions that receive visual dashboard layout (not plain text)
+VISUAL_ACTIONS = {
+    "pros_cons", "bull_bear", "sentiment", "hype_score", "trade_thesis",
+    "market_impact", "key_takeaways", "trade_risks", "actionable_points",
+    "key_catalysts", "counterarguments", "simplify_thread", "important_changes",
+    "guidance_summary", "market_reaction", "explain_indicator",
+    "selling_points", "neighborhood_highlights", "investment_potential",
+    "client_summary", "compare_listings", "explain_contract", "contract_risks",
+    "risk_summary", "summarize", "inspect",
+}
+
+
+# ── Tone definitions ─────────────────────────────────────────────────────────
+
+TONES = [
+    ("Pro",      "professional"),
+    ("Friendly", "friendly"),
+    ("Direct",   "direct"),
+    ("Short",    "short"),
+]
+
+TONE_INSTRUCTIONS = {
+    "professional": (
+        "Tone: professional and polished. Confident but not stiff. "
+        "Suitable for business communication with clients, executives, or partners."
+    ),
+    "friendly": (
+        "Tone: warm, conversational, and human. Write as if messaging a colleague or "
+        "acquaintance. Use contractions. Avoid corporate language."
+    ),
+    "direct": (
+        "Tone: direct and to the point. No pleasantries, no hedging, no filler. "
+        "Lead immediately with the key point."
+    ),
+    "short": (
+        "Tone: extremely brief. 1 to 2 sentences maximum. "
+        "Cut everything that is not essential to the core message."
+    ),
+}
+
+SYSTEM_CONTEXT = (
+    "You are an AI assistant embedded in a desktop productivity app called AI Cursor. "
+    "Users are professionals — sales reps, founders, recruiters, and creators — doing "
+    "high-volume communication and content work. "
+    "Your outputs must be: human-sounding (never robotic or AI-sounding), concise, and "
+    "ready to use without any editing. "
+    "Never add preambles like 'Here is your reply:', disclaimers, sign-offs, or "
+    "explanations unless explicitly asked. Return only the requested output."
+)

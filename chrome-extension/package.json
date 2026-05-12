@@ -1,0 +1,30 @@
+{
+  "name": "Pushpa-browser-extension",
+  "version": "1.0.0",
+  "description": "Universal browser automation agent for Pushpa",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.js",
+    "watch": "node scripts/watch.js",
+    "test": "jest",
+    "lint": "eslint . --ext .js",
+    "validate": "node scripts/validate.js",
+    "zip": "node scripts/zip.js"
+  },
+  "keywords": [
+    "browser-automation",
+    "chrome-extension",
+    "ai-agent",
+    "Pushpa"
+  ],
+  "author": "Pushpa Inc.",
+  "license": "Commercial",
+  "devDependencies": {
+    "archiver": "^5.3.1",
+    "eslint": "^8.50.0",
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
