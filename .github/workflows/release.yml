@@ -40,11 +40,18 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller pushpa.spec --noconfirm
 
+      - name: List dist folder before installer
+        run: Get-ChildItem dist -Recurse -Depth 1
+
       - name: Build installer with Inno Setup
         run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { Write-Error "ISCC not found"; exit 1 }
           $ver = "${{ env.VERSION }}".TrimStart("v")
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DMyAppVersion=$ver
-          Write-Host "Installer: $((Get-Item dist\AIcursor-windows-setup.exe).Length / 1MB) MB"
+          Write-Host "Building installer v$ver"
+          & $iscc installer.iss /DMyAppVersion=$ver
+          if ($LASTEXITCODE -ne 0) { Write-Error "ISCC failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
+          Write-Host "Installer: $([math]::Round((Get-Item dist\AIcursor-windows-setup.exe).Length / 1MB, 1)) MB"
 
       - uses: actions/upload-artifact@v4
         with:
