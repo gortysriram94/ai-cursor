@@ -14,8 +14,8 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ("icons/*.png",  "icons"),
-        ("icons/*.icns", "icons"),
+        ("icons/icon.png",  "icons"),
+        ("icons/icon.icns", "icons"),
     ],
     hiddenimports=[
         # Brain
