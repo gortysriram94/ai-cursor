@@ -529,7 +529,7 @@ export default function LandingPage() {
             <div className="grid gap-3">
               {[
                 ["⊞", "Local model", "Runs Ollama locally — your text never leaves your machine"],
-                ["◎", "No account", "Download and run. No sign-up, no email, no tracking"],
+                ["◎", "No account", "Download, extract, run. No sign-up, no email, no tracking."],
                 ["✦", "Your files", "All data is plain JSON files you can inspect or delete anytime"],
               ].map(([icon, title, body]) => (
                 <div key={title} className="flex gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel-2)] p-4">
@@ -551,13 +551,13 @@ export default function LandingPage() {
           Ready in 60 seconds.
         </h2>
         <p className="mt-4 text-lg text-[var(--text-dim)]">
-          Download, run the installer, press Alt+A.
+          Download, extract, run — press Alt+A.
         </p>
 
         <div className="mt-10 flex flex-col items-center gap-4">
           <DownloadBtn size="lg" className="shadow-[0_0_40px_rgba(218,119,86,0.2)]" />
           <p className="text-sm text-[var(--muted)]">
-            Windows 10 / 11 &amp; macOS 13+ · x64 / Apple Silicon · ~45 MB · No Python required
+            Windows 10 / 11 · x64 · ~76 MB zip · No Python required · No install needed
           </p>
         </div>
 
@@ -565,9 +565,9 @@ export default function LandingPage() {
         <div className="mx-auto mt-16 max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-6 text-left">
           <p className="text-xs font-semibold uppercase tracking-widest text-[var(--muted)] mb-5">Installation</p>
           {[
-            "Windows: run AIcursor-windows-setup.exe and click through the wizard. Mac: open the .dmg and drag AI Cursor to Applications.",
-            "AI Cursor launches automatically and sits in your system tray — no window, no fuss.",
-            "Press Alt+A anywhere (Option+A on Mac) on any text to start.",
+            "Download the zip and extract it — right-click the file and choose Extract All.",
+            "Open the AIcursor-windows folder and double-click AIcursor.exe to launch.",
+            "AI Cursor runs silently in the system tray. Press Alt+A on any text to start.",
           ].map((step, i) => (
             <div key={i} className="flex items-start gap-3 mb-4 last:mb-0">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--panel-2)] font-mono text-[10px] text-[var(--muted)] mt-0.5">

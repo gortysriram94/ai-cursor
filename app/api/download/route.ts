@@ -12,8 +12,11 @@ import { NextRequest, NextResponse } from "next/server";
 const REPO = "gortysriram94/ai-cursor";
 const BASE = `https://github.com/${REPO}/releases/latest/download`;
 
-const WIN_URL = `${BASE}/AIcursor-windows-setup.exe`;
-const MAC_URL = `${BASE}/AIcursor-macos-v0.1.dmg`;
+// GitHub Actions names files AIcursor-windows-vX.X.X.zip / AIcursor-macos-vX.X.X.dmg
+// "latest" release always has the newest — filenames are fixed per release tag.
+const VERSION  = "v0.1.0";
+const WIN_URL  = `${BASE}/AIcursor-windows-${VERSION}.zip`;
+const MAC_URL  = `${BASE}/AIcursor-macos-${VERSION}.dmg`;
 
 function detectPlatform(ua: string): "windows" | "macos" {
   return /mac os|macintosh/i.test(ua) ? "macos" : "windows";

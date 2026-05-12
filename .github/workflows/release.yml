@@ -1,0 +1,131 @@
+name: Build & Release
+
+# Runs when you push a tag like v0.2.0
+# Or manually from GitHub → Actions → Run workflow
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. v0.2.0)"
+        required: true
+        default: "v0.1.0"
+
+jobs:
+  # ── Windows build ─────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller pillow requests pyautogui pyperclip pynput psutil pywin32 pdfplumber
+
+      - name: Build with PyInstaller
+        run: pyinstaller pushpa.spec --noconfirm
+
+      - name: Zip output
+        run: |
+          Compress-Archive -Path dist\AIcursor-windows\* -DestinationPath dist\AIcursor-windows-${{ github.ref_name || inputs.version }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/AIcursor-windows-*.zip
+
+  # ── macOS build ──────────────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller pillow requests pyautogui pyperclip pynput pdfplumber \
+            pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
+
+      - name: Build with PyInstaller
+        run: pyinstaller pushpa_macos.spec --noconfirm
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "AI Cursor" \
+            --volicon "icons/icon.icns" \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "AIcursor.app" 175 190 \
+            --hide-extension "AIcursor.app" \
+            --app-drop-link 425 190 \
+            "dist/AIcursor-macos-${{ github.ref_name || inputs.version }}.dmg" \
+            "dist/AIcursor.app" \
+          || true   # create-dmg exits non-zero sometimes even on success
+
+      - name: Fallback — zip if DMG failed
+        run: |
+          if [ ! -f "dist/AIcursor-macos-${{ github.ref_name || inputs.version }}.dmg" ]; then
+            cd dist && zip -r AIcursor-macos-${{ github.ref_name || inputs.version }}.zip AIcursor.app
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            dist/AIcursor-macos-*.dmg
+            dist/AIcursor-macos-*.zip
+
+  # ── Publish release ───────────────────────────────────────────────────────
+  publish:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: dist
+
+      - name: Download macOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || inputs.version }}
+          name: AI Cursor ${{ github.ref_name || inputs.version }}
+          body: |
+            ## AI Cursor ${{ github.ref_name || inputs.version }}
+
+            ### Windows
+            1. Download `AIcursor-windows-*.zip`
+            2. Extract the zip — right-click → Extract All
+            3. Open the folder and double-click `AIcursor.exe`
+            4. Press **Alt+A** on any text to start
+
+            ### macOS
+            1. Download `AIcursor-macos-*.dmg` (or `.zip`)
+            2. Open the DMG and drag AI Cursor to Applications
+            3. Press **Option+A** on any text to start
+          files: dist/*
+          make_latest: true
