@@ -5,6 +5,7 @@ No mutable state lives here.
 
 import os
 import sys
+import platform as _platform
 from pathlib import Path
 
 
@@ -37,9 +38,17 @@ except ImportError:
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
-APP_DIR           = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
-OLLAMA_EXE        = APP_DIR / "ollama" / "ollama.exe"
-OLLAMA_MODELS_DIR = Path(os.environ.get("APPDATA", str(APP_DIR))) / "Pushpa" / "models"
+APP_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+
+_os = _platform.system()
+OLLAMA_EXE = APP_DIR / "ollama" / ("ollama.exe" if _os == "Windows" else "ollama")
+
+if _os == "Darwin":
+    OLLAMA_MODELS_DIR = Path.home() / "Library" / "Application Support" / "Pushpa" / "models"
+elif _os == "Windows":
+    OLLAMA_MODELS_DIR = Path(os.environ.get("APPDATA", str(APP_DIR))) / "Pushpa" / "models"
+else:
+    OLLAMA_MODELS_DIR = Path.home() / ".pushpa" / "models"
 
 LOG_FILE       = APP_DIR / "pushpa.log"
 LOG_FILE_PREV  = APP_DIR / "pushpa_prev.log"
@@ -56,7 +65,7 @@ HOTKEYS_FILE  = APP_DIR / "pushpa_hotkeys.json"
 OLLAMA_PORT   = 11435
 OLLAMA_BASE   = f"http://localhost:{OLLAMA_PORT}/v1"
 OLLAMA_API    = f"http://localhost:{OLLAMA_PORT}"
-OLLAMA_MODEL  = "llama2:latest"
+OLLAMA_MODEL  = "llama3.2:1b"
 OLLAMA_VISION = "llava-phi3"
 
 # Lightweight model used for background context building.

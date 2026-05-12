@@ -5,7 +5,9 @@ block_cipher = None
 a = Analysis(
     ["main.py"],
     pathex=[],
-    binaries=[],
+    binaries=[
+        ("ollama/ollama", "ollama"),
+    ],
     datas=[
         ("icons/icon.png", "icons"),
     ],

@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Downloads served from GitHub Releases — free, no env vars needed.
+// Fixed filenames so the URL never changes between versions.
 // Repo: https://github.com/gortysriram94/ai-cursor
-//
-// To publish a release:
-//   gh release create v0.1.0 \
-//     dist/AIcursor-windows-setup.exe \
-//     dist/AIcursor-macos-v0.1.dmg \
-//     --title "AI Cursor v0.1.0" --latest
 
 const REPO = "gortysriram94/ai-cursor";
 const BASE = `https://github.com/${REPO}/releases/latest/download`;
 
-// Fixed filenames — GitHub /releases/latest/download/ always serves the newest release.
-// Never needs updating when you ship a new version.
-const WIN_URL = `${BASE}/AIcursor-windows.zip`;
+const WIN_URL = `${BASE}/AIcursor-windows-setup.exe`;
 const MAC_URL = `${BASE}/AIcursor-macos.dmg`;
 
 function detectPlatform(ua: string): "windows" | "macos" {

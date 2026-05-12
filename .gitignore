@@ -17,6 +17,10 @@ __pycache__/
 *.pyo
 *.spec.bak
 
+# Ollama binaries — downloaded in CI, not committed
+ollama/ollama.exe
+ollama/ollama
+
 # App data files (user-specific, not source code)
 pushpa.log
 pushpa_prev.log

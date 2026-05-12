@@ -7,12 +7,10 @@ block_cipher = None
 a = Analysis(
     ["main.py"],
     pathex=[],
-    binaries=[],
+    binaries=[
+        ("ollama/ollama.exe", "ollama"),
+    ],
     datas=[
-        # Bundle Ollama binary if present (optional — app runs without it)
-        # ("ollama/ollama.exe", "ollama"),
-
-        # Icon assets
         ("icons/icon.ico",  "icons"),
         ("icons/icon.png",  "icons"),
     ],

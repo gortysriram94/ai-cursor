@@ -12,7 +12,7 @@ on:
         default: "v0.3.0"
 
 env:
-  VERSION: ${{ github.ref_name || inputs.version }}
+  VERSION: ${{ inputs.version || github.ref_name }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -29,24 +29,34 @@ jobs:
       - name: Install dependencies
         run: pip install pyinstaller pillow requests pyautogui pyperclip pynput psutil pywin32 pdfplumber
 
-      - name: Build
+      - name: Download Ollama
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip" -OutFile ollama.zip
+          Expand-Archive ollama.zip -DestinationPath ollama_tmp -Force
+          New-Item -ItemType Directory -Force -Path ollama | Out-Null
+          Copy-Item ollama_tmp\ollama.exe ollama\ollama.exe
+          Write-Host "ollama.exe: $([math]::Round((Get-Item ollama\ollama.exe).Length / 1MB, 1)) MB"
+
+      - name: Build with PyInstaller
         run: pyinstaller pushpa.spec --noconfirm
 
-      - name: Zip
-        run: Compress-Archive -Path dist\AIcursor-windows\* -DestinationPath dist\AIcursor-windows.zip
+      - name: Build installer with Inno Setup
+        run: |
+          $ver = "${{ env.VERSION }}".TrimStart("v")
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DMyAppVersion=$ver
+          Write-Host "Installer: $((Get-Item dist\AIcursor-windows-setup.exe).Length / 1MB) MB"
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/AIcursor-windows.zip
+          path: dist/AIcursor-windows-setup.exe
 
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-14        # Apple Silicon — fast runners, widely available
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
-      # Use Homebrew Python — ARM path is /opt/homebrew, Intel was /usr/local
       - name: Install Python 3.11 via Homebrew
         run: |
           brew install python@3.11
@@ -59,9 +69,15 @@ jobs:
         run: |
           python3.11 -m pip install --upgrade pip
           python3.11 -m pip install pyinstaller pillow requests pyautogui pyperclip pynput pdfplumber
-          # pyobjc is optional — app degrades gracefully without it
           python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz \
             pyobjc-framework-ApplicationServices 2>/dev/null || echo "pyobjc skipped"
+
+      - name: Download Ollama
+        run: |
+          mkdir -p ollama
+          curl -L "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin" -o ollama/ollama
+          chmod +x ollama/ollama
+          echo "ollama: $(du -sh ollama/ollama | cut -f1)"
 
       - name: Build with PyInstaller
         run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
@@ -85,7 +101,6 @@ jobs:
       - name: Zip as fallback if DMG missing
         run: |
           if [ ! -f "dist/AIcursor-macos.dmg" ]; then
-            echo "No DMG — creating zip fallback"
             cd dist && zip -r "AIcursor-macos.zip" AIcursor.app
           fi
 
@@ -124,14 +139,15 @@ jobs:
             ## AI Cursor ${{ env.VERSION }}
 
             ### Windows
-            1. Download `AIcursor-windows.zip`
-            2. Extract — right-click → **Extract All**
-            3. Open the folder and double-click **AIcursor.exe**
+            1. Download `AIcursor-windows-setup.exe`
+            2. Run the installer — it sets up Start Menu + Desktop shortcuts
+            3. On first launch the app downloads the AI model (~1.3 GB) automatically
             4. Press **Alt+A** on any text to start
 
             ### macOS
             1. Download `AIcursor-macos.dmg`
             2. Open the DMG, drag **AI Cursor** to Applications
-            3. Press **Option+A** on any text to start
+            3. On first launch the app downloads the AI model (~1.3 GB) automatically
+            4. Press **Option+A** on any text to start
           files: dist/*
           make_latest: true

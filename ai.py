@@ -9,6 +9,7 @@ import json
 import time
 import threading
 import subprocess
+import platform as _platform
 import requests
 
 from config import (
@@ -101,12 +102,16 @@ def start_bundled_ollama() -> bool:
     env["OLLAMA_HOST"]   = f"127.0.0.1:{OLLAMA_PORT}"
     env["OLLAMA_MODELS"] = str(OLLAMA_MODELS_DIR)
 
+    extra = {}
+    if _platform.system() == "Windows":
+        extra["creationflags"] = subprocess.CREATE_NO_WINDOW
+
     state._ollama_proc = subprocess.Popen(
         [str(OLLAMA_EXE), "serve"],
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        creationflags=subprocess.CREATE_NO_WINDOW,
+        **extra,
     )
 
     for _ in range(20):
