@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Downloads served from GitHub Releases — free, no env vars needed.
-// Windows: installer .exe (preferred) with .zip fallback.
-// macOS:   DMG with .zip fallback.
-// Repo: https://github.com/gortysriram94/ai-cursor
-
 const REPO = "gortysriram94/ai-cursor";
-const BASE = `https://github.com/${REPO}/releases/latest/download`;
 
-async function resolveUrl(preferred: string, fallback: string): Promise<string> {
-  try {
-    const res = await fetch(preferred, { method: "HEAD", redirect: "follow" });
-    if (res.ok) return preferred;
-  } catch {}
-  return fallback;
+async function getLatestAssets(): Promise<{ name: string; url: string }[]> {
+  const res = await fetch(
+    `https://api.github.com/repos/${REPO}/releases/latest`,
+    { headers: { Accept: "application/vnd.github+json" }, next: { revalidate: 300 } }
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.assets ?? []).map((a: { name: string; browser_download_url: string }) => ({
+    name: a.name,
+    url: a.browser_download_url,
+  }));
 }
 
 function detectPlatform(ua: string): "windows" | "macos" {
@@ -24,12 +23,21 @@ export async function GET(req: NextRequest) {
   const platform = req.nextUrl.searchParams.get("platform")
     ?? detectPlatform(req.headers.get("user-agent") ?? "");
 
-  let url: string;
+  const assets = await getLatestAssets();
+
+  let asset: { url: string } | undefined;
+
   if (platform === "macos") {
-    url = await resolveUrl(`${BASE}/AIcursor-macos.dmg`, `${BASE}/AIcursor-macos.zip`);
+    asset = assets.find(a => a.name.endsWith(".dmg"))
+         ?? assets.find(a => a.name.toLowerCase().includes("mac") && a.name.endsWith(".zip"));
   } else {
-    url = await resolveUrl(`${BASE}/AIcursor-windows-setup.exe`, `${BASE}/AIcursor-windows-setup.zip`);
+    asset = assets.find(a => a.name.endsWith(".exe"))
+         ?? assets.find(a => a.name.toLowerCase().includes("windows") && a.name.endsWith(".zip"));
   }
 
-  return NextResponse.redirect(url, { status: 302 });
+  if (!asset) {
+    return NextResponse.json({ error: "No release found" }, { status: 404 });
+  }
+
+  return NextResponse.redirect(asset.url, { status: 302 });
 }
