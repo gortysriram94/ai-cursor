@@ -13,6 +13,7 @@ on:
 
 env:
   VERSION: ${{ github.ref_name || inputs.version }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # silence Node.js 20 deprecation
 
 jobs:
   # ── Windows ────────────────────────────────────────────────────────────────
@@ -53,9 +54,11 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install pyinstaller pillow requests pyautogui pyperclip pynput pdfplumber
-          pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz
-          # ApplicationServices is optional — skip if it fails
-          pip install pyobjc-framework-ApplicationServices || echo "ApplicationServices skipped"
+          # pyobjc — install each framework independently, skip on failure
+          pip install pyobjc-core             || echo "pyobjc-core skipped"
+          pip install pyobjc-framework-Cocoa  || echo "pyobjc-Cocoa skipped"
+          pip install pyobjc-framework-Quartz || echo "pyobjc-Quartz skipped"
+          pip install pyobjc-framework-ApplicationServices || echo "pyobjc-AppServices skipped"
 
       - name: Generate proper .icns using macOS iconutil
         run: |
@@ -73,7 +76,7 @@ jobs:
           echo "icon.icns generated via iconutil"
 
       - name: Build with PyInstaller
-        run: pyinstaller pushpa_macos.spec --noconfirm
+        run: pyinstaller pushpa_macos.spec --noconfirm --log-level WARN
 
       - name: Package as DMG
         run: |

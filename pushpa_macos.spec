@@ -97,9 +97,8 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,     # UPX not recommended on macOS
+    upx=False,
     console=False,
-    icon="icons/icon.icns",
 )
 
 app = BUNDLE(
@@ -108,7 +107,6 @@ app = BUNDLE(
     a.zipfiles,
     a.datas,
     name="AIcursor.app",
-    icon="icons/icon.icns",
     bundle_identifier="com.aicursor.app",
     info_plist={
         "CFBundleDisplayName":        "AI Cursor",
