@@ -42,15 +42,15 @@ jobs:
 
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-13
+    runs-on: macos-14        # Apple Silicon — fast runners, widely available
     steps:
       - uses: actions/checkout@v4
 
-      # Use Homebrew Python directly — avoids setup-python / Node.js issues
+      # Use Homebrew Python — ARM path is /opt/homebrew, Intel was /usr/local
       - name: Install Python 3.11 via Homebrew
         run: |
           brew install python@3.11
-          echo "/usr/local/opt/python@3.11/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix)/opt/python@3.11/bin" >> $GITHUB_PATH
 
       - name: Verify Python
         run: python3.11 --version
