@@ -7,13 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version tag (e.g. v0.2.0)"
+        description: "Version tag (e.g. v0.3.0)"
         required: true
-        default: "v0.2.0"
+        default: "v0.3.0"
 
 env:
   VERSION: ${{ github.ref_name || inputs.version }}
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # silence Node.js 20 deprecation
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ── Windows ────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"   # 3.12 = most stable with pywin32 + pyinstaller
+          python-version: "3.12"
 
       - name: Install dependencies
         run: pip install pyinstaller pillow requests pyautogui pyperclip pynput psutil pywin32 pdfplumber
@@ -42,61 +42,50 @@ jobs:
 
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
-    runs-on: macos-13          # macOS 13 (Ventura) — more stable than macos-latest for pyobjc
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"  # pyobjc works best on 3.12
-
-      - name: Install Python dependencies
+      # Use Homebrew Python directly — avoids setup-python / Node.js issues
+      - name: Install Python 3.11 via Homebrew
         run: |
-          pip install --upgrade pip
-          pip install pyinstaller pillow requests pyautogui pyperclip pynput pdfplumber
-          # pyobjc — install each framework independently, skip on failure
-          pip install pyobjc-core             || echo "pyobjc-core skipped"
-          pip install pyobjc-framework-Cocoa  || echo "pyobjc-Cocoa skipped"
-          pip install pyobjc-framework-Quartz || echo "pyobjc-Quartz skipped"
-          pip install pyobjc-framework-ApplicationServices || echo "pyobjc-AppServices skipped"
+          brew install python@3.11
+          echo "/usr/local/opt/python@3.11/bin" >> $GITHUB_PATH
 
-      - name: Generate proper .icns using macOS iconutil
+      - name: Verify Python
+        run: python3.11 --version
+
+      - name: Install dependencies
         run: |
-          # Build an iconset from the PNG using macOS built-in tools
-          mkdir -p icons/icon.iconset
-          python3 -c "
-          from PIL import Image
-          src = Image.open('icons/icon.png').convert('RGBA')
-          sizes = [16,32,64,128,256,512]
-          for s in sizes:
-              src.resize((s,s), Image.LANCZOS).save(f'icons/icon.iconset/icon_{s}x{s}.png')
-              src.resize((s*2,s*2), Image.LANCZOS).save(f'icons/icon.iconset/icon_{s}x{s}@2x.png')
-          "
-          iconutil -c icns icons/icon.iconset -o icons/icon.icns
-          echo "icon.icns generated via iconutil"
+          python3.11 -m pip install --upgrade pip
+          python3.11 -m pip install pyinstaller pillow requests pyautogui pyperclip pynput pdfplumber
+          # pyobjc is optional — app degrades gracefully without it
+          python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz \
+            pyobjc-framework-ApplicationServices 2>/dev/null || echo "pyobjc skipped"
 
       - name: Build with PyInstaller
-        run: pyinstaller pushpa_macos.spec --noconfirm --log-level WARN
+        run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
+
+      - name: Verify app was created
+        run: ls -la dist/
 
       - name: Package as DMG
         run: |
           brew install create-dmg
           create-dmg \
             --volname "AI Cursor" \
-            --volicon "icons/icon.icns" \
             --window-size 600 400 \
             --icon-size 100 \
             --icon "AIcursor.app" 175 190 \
             --hide-extension "AIcursor.app" \
             --app-drop-link 425 190 \
             "dist/AIcursor-macos-${{ env.VERSION }}.dmg" \
-            "dist/AIcursor.app" \
-          || echo "create-dmg exited non-zero (often normal)"
+            "dist/AIcursor.app" || echo "create-dmg done (non-zero is normal)"
 
-      - name: Fallback to zip if DMG missing
+      - name: Zip as fallback if DMG missing
         run: |
           if [ ! -f "dist/AIcursor-macos-${{ env.VERSION }}.dmg" ]; then
-            echo "DMG not found — zipping .app instead"
+            echo "No DMG — creating zip fallback"
             cd dist && zip -r "AIcursor-macos-${{ env.VERSION }}.zip" AIcursor.app
           fi
 
@@ -124,7 +113,7 @@ jobs:
           name: macos-build
           path: dist
 
-      - name: List files to publish
+      - name: List release files
         run: ls -lh dist/
 
       - uses: softprops/action-gh-release@v2
@@ -137,7 +126,7 @@ jobs:
             ### Windows
             1. Download `AIcursor-windows-*.zip`
             2. Extract — right-click → **Extract All**
-            3. Open the folder, double-click **AIcursor.exe**
+            3. Open the folder and double-click **AIcursor.exe**
             4. Press **Alt+A** on any text to start
 
             ### macOS

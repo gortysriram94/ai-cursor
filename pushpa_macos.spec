@@ -1,11 +1,4 @@
 # pushpa_macos.spec — PyInstaller build config for AI Cursor on macOS
-# Run ON a Mac:  pyinstaller pushpa_macos.spec
-# Output: dist/AIcursor.app  →  zip as AIcursor-macos-v0.1.zip for distribution
-#
-# Required before building:
-#   pip install pyinstaller pyobjc-framework-Cocoa pyobjc-framework-Quartz \
-#               pyobjc-framework-ApplicationServices pynput pyautogui Pillow \
-#               requests pyperclip pdfplumber
 
 block_cipher = None
 
@@ -14,8 +7,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ("icons/icon.png",  "icons"),
-        ("icons/icon.icns", "icons"),
+        ("icons/icon.png", "icons"),
     ],
     hiddenimports=[
         # Brain
@@ -50,12 +42,7 @@ a = Analysis(
         "ai", "config", "context", "crash", "hover",
         "hyperlinks", "log", "memory", "prompts",
         "rules", "security", "state", "storage",
-        # macOS
-        "AppKit",
-        "Quartz",
-        "ApplicationServices",
-        "Foundation",
-        # Cross-platform
+        # Cross-platform (always available)
         "pyautogui",
         "pyperclip",
         "pynput",
@@ -63,20 +50,19 @@ a = Analysis(
         "pynput.mouse",
         "PIL",
         "requests",
-        "pdfplumber",
         "tkinter",
         "tkinter.ttk",
         "tkinter.filedialog",
+        # pdfplumber is optional
     ],
     hookspath=[],
     runtime_hooks=[],
     excludes=[
-        # Windows-only — not present on macOS
-        "win32gui",
-        "win32process",
-        "win32con",
-        "comtypes",
-        "psutil",
+        # Windows-only
+        "win32gui", "win32process", "win32con", "comtypes", "psutil",
+        # pyobjc — loaded at runtime via try/except, not needed at build time
+        "AppKit", "Quartz", "ApplicationServices", "Foundation",
+        "objc",
         # Web stack
         "next", "react", "webpack",
     ],
@@ -113,7 +99,6 @@ app = BUNDLE(
         "CFBundleShortVersionString": "0.1.0",
         "CFBundleVersion":            "0.1.0",
         "NSHighResolutionCapable":    True,
-        # Permissions the OS requires before the app can use Accessibility / Screen Recording
         "NSAccessibilityUsageDescription":
             "AI Cursor reads text from the active window to generate AI responses.",
         "NSScreenCaptureUsageDescription":
