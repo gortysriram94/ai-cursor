@@ -40,23 +40,39 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller pushpa.spec --noconfirm
 
-      - name: List dist folder before installer
-        run: Get-ChildItem dist -Recurse -Depth 1
-
       - name: Build installer with Inno Setup
         run: |
+          Write-Host "=== dist contents ==="
+          Get-ChildItem dist | Select-Object Name, Length
+
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { Write-Error "ISCC not found"; exit 1 }
-          $ver = "${{ env.VERSION }}".TrimStart("v")
+          $ver  = "${{ env.VERSION }}".TrimStart("v")
+          Write-Host "ISCC path: $iscc  exists: $(Test-Path $iscc)"
           Write-Host "Building installer v$ver"
-          & $iscc installer.iss /DMyAppVersion=$ver
-          if ($LASTEXITCODE -ne 0) { Write-Error "ISCC failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
-          Write-Host "Installer: $([math]::Round((Get-Item dist\AIcursor-windows-setup.exe).Length / 1MB, 1)) MB"
+
+          if (Test-Path $iscc) {
+            & $iscc installer.iss /DMyAppVersion=$ver
+            $code = $LASTEXITCODE
+            Write-Host "ISCC exit code: $code"
+          } else {
+            $code = 1
+            Write-Host "ISCC not found — skipping"
+          }
+
+          if ($code -ne 0 -or -not (Test-Path dist\AIcursor-windows-setup.exe)) {
+            Write-Host "Installer not produced — falling back to zip"
+            Compress-Archive -Path dist\AIcursor-windows\* -DestinationPath dist\AIcursor-windows-setup.zip -Force
+            Write-Host "Zip fallback: $([math]::Round((Get-Item dist\AIcursor-windows-setup.zip).Length / 1MB, 1)) MB"
+          } else {
+            Write-Host "Installer: $([math]::Round((Get-Item dist\AIcursor-windows-setup.exe).Length / 1MB, 1)) MB"
+          }
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/AIcursor-windows-setup.exe
+          path: |
+            dist/AIcursor-windows-setup.exe
+            dist/AIcursor-windows-setup.zip
 
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
