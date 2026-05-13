@@ -37,3 +37,7 @@ Filename: "{app}\AIcursor.exe"; Description: "Launch AI Cursor now"; Flags: nowa
 
 [UninstallRun]
 Filename: "taskkill.exe"; Parameters: "/f /im AIcursor.exe"; Flags: runhidden
+Filename: "taskkill.exe"; Parameters: "/f /im ollama.exe"; Flags: runhidden
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{userappdata}\Pushpa"
