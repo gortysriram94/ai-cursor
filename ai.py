@@ -23,6 +23,13 @@ from config import (
     OLLAMA_EXE, OLLAMA_MODELS_DIR, OLLAMA_PORT, OLLAMA_API,
     OLLAMA_MODEL, OLLAMA_VISION, OLLAMA_CONTEXT_MODEL,
 )
+
+# Pre-import at module level so the first AI call doesn't trigger deep importlib
+# chains inside a PyInstaller frozen app (which would eat into the recursion budget).
+try:
+    from retrieval_engine import retrieve_for_action as _retrieve_for_action
+except Exception:
+    _retrieve_for_action = None
 from log import log
 import state
 from brain.context_bundle import ContextBundle
@@ -194,11 +201,10 @@ def call_ai_streaming(text: str, action: str, tone: str,
 
         # Retrieval phase — runs before prompt is built so docs are injected
         active_bundle = bundle
-        if active_bundle is not None:
+        if active_bundle is not None and _retrieve_for_action is not None:
             try:
-                from retrieval_engine import retrieve_for_action
-                docs = retrieve_for_action(text, action, active_bundle,
-                                           status_cb=status_cb)
+                docs = _retrieve_for_action(text, action, active_bundle,
+                                            status_cb=status_cb)
                 if docs:
                     active_bundle.retrieved_docs = docs
                     if on_sources:
@@ -392,7 +398,7 @@ def call_context_builder(
                     "stream":  False,
                     "options": {"temperature": 0.1, "num_predict": 250},
                 },
-                timeout=8,
+                timeout=20,
             )
             if res.status_code != 200:
                 continue

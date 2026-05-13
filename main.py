@@ -17,6 +17,10 @@ import queue
 import sys
 import threading
 
+# PyInstaller frozen apps + deep call chains (retrieval engine, importlib hooks)
+# can exhaust Python's default 1000-frame limit. 5000 gives plenty of headroom.
+sys.setrecursionlimit(5000)
+
 import tkinter as tk
 import pyautogui
 
