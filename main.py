@@ -60,7 +60,9 @@ def setup_ollama() -> bool:
         is_model_pulled, get_vision_api,
     )
 
+    log(f"[OLLAMA] exe path: {OLLAMA_EXE}  exists={OLLAMA_EXE.exists()}")
     if not OLLAMA_EXE.exists():
+        log("[OLLAMA] Binary not found — skipping local AI")
         return False
 
     print("[OLLAMA] Starting bundled instance…")

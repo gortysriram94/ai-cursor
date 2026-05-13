@@ -252,8 +252,10 @@ def show_dashboard(root: tk.Tk):
     local_dot, local_val = _status_card(h_inner, "Local Model  (Ollama)")
     vis_dot,   vis_val   = _status_card(h_inner, "Vision")
 
-    def _fetch_status():
-        from ai import get_ollama_api, get_vision_api
+    _status_poll_id = [None]
+
+    def _fetch_status(reschedule: bool = True):
+        from ai import get_ollama_api, get_vision_api, start_bundled_ollama
         from config import NVIDIA_API_KEY
         local = get_ollama_api()
         vis   = get_vision_api()
@@ -284,7 +286,43 @@ def show_dashboard(root: tk.Tk):
             else:
                 vis_val.configure(text="Unavailable", fg=_T["muted"])
 
+            if reschedule and win.winfo_exists():
+                _status_poll_id[0] = win.after(5000, lambda: threading.Thread(
+                    target=_fetch_status, daemon=True).start())
+
         win.after(0, _apply)
+
+    def _restart_ollama():
+        local_val.configure(text="Starting…", fg=_T["muted"])
+        local_dot.configure(fg=_T["muted"])
+        def _do():
+            from ai import start_bundled_ollama
+            start_bundled_ollama()
+            threading.Thread(target=_fetch_status, kwargs={"reschedule": False}, daemon=True).start()
+        threading.Thread(target=_do, daemon=True).start()
+
+    restart_row = tk.Frame(h_inner, bg=_T["bg"])
+    restart_row.pack(fill="x", padx=16, pady=(0, 8))
+    tk.Button(
+        restart_row, text="↺  Restart Ollama", bg=_T["panel2"], fg=_T["dim"],
+        relief="flat", bd=0, padx=12, pady=5,
+        font=("Segoe UI", 8), cursor="hand2",
+        command=_restart_ollama,
+    ).pack(side="left")
+    tk.Button(
+        restart_row, text="⟳  Refresh status", bg=_T["panel2"], fg=_T["dim"],
+        relief="flat", bd=0, padx=12, pady=5,
+        font=("Segoe UI", 8), cursor="hand2",
+        command=lambda: threading.Thread(
+            target=_fetch_status, kwargs={"reschedule": False}, daemon=True).start(),
+    ).pack(side="left", padx=(8, 0))
+
+    def _on_close():
+        if _status_poll_id[0]:
+            win.after_cancel(_status_poll_id[0])
+        win.destroy()
+    win.protocol("WM_DELETE_WINDOW", _on_close)
+    x_btn.bind("<Button-1>", lambda e: _on_close())
 
     threading.Thread(target=_fetch_status, daemon=True).start()
 

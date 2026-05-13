@@ -114,8 +114,8 @@ def start_bundled_ollama() -> bool:
         **extra,
     )
 
-    for _ in range(20):
-        time.sleep(0.5)
+    for _ in range(40):
+        time.sleep(0.75)
         if is_ollama_running():
             return True
     return False
