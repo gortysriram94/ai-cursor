@@ -301,18 +301,58 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     tk.Label(setup, text="Your local AI is getting ready.",
              bg=_T["bg"], fg=_T["dim"],
              font=("Segoe UI", 11)).pack()
-    tk.Label(setup, text="One-time download · stays on your machine · works offline",
+    tk.Label(setup, text="One-time download · stays on your machine · works offline · resumes if interrupted",
              bg=_T["bg"], fg=_T["muted"],
              font=("Segoe UI", 9)).pack(pady=(4, 0))
 
-    tk.Frame(setup, bg=_T["border"], height=1).pack(fill="x", padx=32, pady=20)
+    tk.Frame(setup, bg=_T["border"], height=1).pack(fill="x", padx=32, pady=16)
+
+    # ── Model size picker (shown before download starts) ──────────────────────
+    _MODEL_OPTS = [
+        ("qwen2.5:14b", "14B  —  Best quality",  "~9 GB   · deeper reasoning"),
+        ("qwen2.5:7b",  "7B  —  Faster download", "~4.7 GB · half the wait"),
+    ]
+    _chosen_model = [state.model_dl_status.get("_chosen") or "qwen2.5:14b"]
+
+    picker_frame = tk.Frame(setup, bg=_T["bg"], padx=32)
+    picker_frame.pack(fill="x", pady=(0, 10))
+    tk.Label(picker_frame, text="CHOOSE MODEL", bg=_T["bg"], fg=_T["muted"],
+             font=("Segoe UI", 7, "bold")).pack(anchor="w", pady=(0, 6))
+
+    _picker_btns = {}
+    btn_row = tk.Frame(picker_frame, bg=_T["bg"])
+    btn_row.pack(anchor="w")
+
+    def _select_model(key):
+        _chosen_model[0] = key
+        for k, b in _picker_btns.items():
+            active = (k == key)
+            b.configure(bg=_T["accent"] if active else _T["panel2"],
+                        fg="#1A1611" if active else _T["dim"])
+
+    for model_key, label, desc in _MODEL_OPTS:
+        col = tk.Frame(btn_row, bg=_T["bg"])
+        col.pack(side="left", padx=(0, 8))
+        active = (model_key == _chosen_model[0])
+        b = tk.Label(col, text=label,
+                     bg=_T["accent"] if active else _T["panel2"],
+                     fg="#1A1611" if active else _T["dim"],
+                     font=("Segoe UI", 9, "bold"), padx=14, pady=7, cursor="hand2")
+        b.pack()
+        tk.Label(col, text=desc, bg=_T["bg"], fg=_T["muted"],
+                 font=("Segoe UI", 8)).pack(pady=(3, 0))
+        b.bind("<Button-1>", lambda e, k=model_key: _select_model(k))
+        _picker_btns[model_key] = b
+
+    tk.Frame(setup, bg=_T["border"], height=1).pack(fill="x", padx=32, pady=(6, 16))
 
     # ── Models section ────────────────────────────────────────────────────────
     from config import OLLAMA_VISION
 
     _models_info = [
         (state.model_dl_status.get("qwen2.5:14b", {}),   "qwen2.5:14b",  "~9 GB  ·  reasoning & coding"),
-        (state.model_dl_status.get("llava-phi3", {}),     "llava-phi3",   "~1.7 GB  ·  vision"),
+        (state.model_dl_status.get("qwen2.5:7b",  {}),   "qwen2.5:7b",   "~4.7 GB  ·  faster option"),
+        (state.model_dl_status.get("llava-phi3",  {}),   "llava-phi3",   "~1.7 GB  ·  vision"),
     ]
 
     models_outer = tk.Frame(setup, bg=_T["bg"], padx=32)
@@ -411,16 +451,26 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         # Start download on first poll — dashboard is visible by now
         if not _dl_started[0] and state.is_first_run:
             _dl_started[0] = True
-            from config import OLLAMA_MODEL, OLLAMA_VISION, NVIDIA_API_KEY
+            chosen = _chosen_model[0]
+            from config import OLLAMA_VISION, NVIDIA_API_KEY
             from ai import download_model_bg, get_vision_api
-            threading.Thread(target=download_model_bg, args=(OLLAMA_MODEL,), daemon=True).start()
+            # Hide picker now that download is starting
+            picker_frame.pack_forget()
+            threading.Thread(target=download_model_bg, args=(chosen,), daemon=True).start()
             if not get_vision_api() and not NVIDIA_API_KEY:
                 threading.Thread(target=download_model_bg, args=(OLLAMA_VISION,), daemon=True).start()
 
-        main_s = state.model_dl_status.get("qwen2.5:14b", {})
+        chosen = _chosen_model[0]
+        main_s = state.model_dl_status.get(chosen, {})
         done  = main_s.get("done", False)
         error = main_s.get("error", False)
         text  = main_s.get("text", "Downloading…")
+
+        def _fmt_eta(secs: int) -> str:
+            if secs <= 0: return ""
+            if secs < 60: return f"~{secs}s"
+            m = secs // 60
+            return f"~{m}m" if m < 60 else f"~{m//60}h {m%60}m"
 
         if done:
             _summary_var.set("Model ready — press Alt+A to start")
@@ -431,11 +481,16 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
             _summary_var.set(f"Download failed: {text}")
             _summary_lbl.configure(fg=_T["danger"])
         else:
-            pct = main_s.get("pct", 0)
-            mb  = main_s.get("mb", 0)
-            tot = main_s.get("tot", 0)
+            pct   = main_s.get("pct", 0)
+            mb    = main_s.get("mb", 0)
+            tot   = main_s.get("tot", 0)
+            spd   = main_s.get("speed_mbs", 0)
+            eta   = main_s.get("eta_secs", 0)
             if tot > 0:
-                _summary_var.set(f"{pct}%  ·  {mb} MB / {tot} MB")
+                parts = [f"{pct}%  ·  {mb} MB / {tot} MB"]
+                if spd > 0:   parts.append(f"{spd} MB/s")
+                if eta > 0:   parts.append(_fmt_eta(eta))
+                _summary_var.set("  ·  ".join(parts))
             else:
                 _summary_var.set(text or "Starting download…")
             _summary_lbl.configure(fg=_T["dim"])

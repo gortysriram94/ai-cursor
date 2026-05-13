@@ -130,6 +130,7 @@ def stop_bundled_ollama():
 def download_model_bg(model: str):
     """Pull an Ollama model in a background thread. No Tkinter calls — writes to state only."""
     state.model_dl_status[model] = {"text": "Connecting…"}
+    t_start = time.time()
     try:
         res = requests.post(f"{OLLAMA_API}/api/pull",
                             json={"name": model}, stream=True, timeout=None)
@@ -142,12 +143,19 @@ def download_model_bg(model: str):
                 log(f"[PULL FAILED] {model}: {data['error']}")
                 return
             if "total" in data and "completed" in data and data["total"] > 0:
-                pct = int(data["completed"] / data["total"] * 100)
-                mb  = data["completed"] // (1024 * 1024)
-                tot = data["total"]     // (1024 * 1024)
+                completed = data["completed"]
+                total     = data["total"]
+                pct = int(completed / total * 100)
+                mb  = completed // (1024 * 1024)
+                tot = total     // (1024 * 1024)
+                elapsed = time.time() - t_start
+                speed_mbs = round(completed / (1024 * 1024) / elapsed, 1) if elapsed > 1 else 0
+                eta_secs  = int((total - completed) / (completed / elapsed)) if completed > 0 and elapsed > 1 else 0
                 state.model_dl_status[model] = {
                     "pct": pct, "mb": mb, "tot": tot,
                     "text": f"{pct}%  —  {mb} MB / {tot} MB",
+                    "speed_mbs": speed_mbs,
+                    "eta_secs":  eta_secs,
                 }
             elif data.get("status"):
                 state.model_dl_status[model] = {"text": data["status"]}
