@@ -217,20 +217,28 @@ def _call_ai_simple(prompt: str, max_tokens: int = 400, timeout: int = 30) -> st
 # ── OpenAI-compatible streaming ───────────────────────────────────────────────
 
 def _stream_openai(base: str, key: str, model: str, prompt: str,
-                   on_token, on_done, on_error, timeout: int = 30):
+                   on_token, on_done, on_error, timeout: int = 30,
+                   max_tokens: int = 400):
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
+    is_ollama = not key   # Ollama endpoints have no auth key
+    body: dict = {
+        "model":      model,
+        "messages":   [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "stream":     True,
+    }
+    if is_ollama:
+        # Ollama-specific performance options.
+        # num_ctx: keep context window tight — our prompts rarely exceed 2k tokens.
+        # num_thread: use more CPU cores (Ollama default is often conservative).
+        body["options"] = {"num_ctx": 2048, "num_thread": 8}
     try:
         res = requests.post(
             f"{base}/chat/completions",
             headers=headers,
-            json={
-                "model":      model,
-                "messages":   [{"role": "user", "content": prompt}],
-                "max_tokens": 512,
-                "stream":     True,
-            },
+            json=body,
             stream=True,
             timeout=timeout,
         )
@@ -267,6 +275,9 @@ def call_ai_streaming(text: str, action: str, tone: str,
                       bundle: "ContextBundle | None" = None):
     from prompts import build_prompt
     from log import log_prompt
+    from config import ACTION_MAX_TOKENS, _DEFAULT_MAX_TOKENS
+
+    max_tokens = ACTION_MAX_TOKENS.get(action, _DEFAULT_MAX_TOKENS)
 
     prompt = build_prompt(text, action, tone,
                           custom_instruction=custom_instruction,
@@ -300,9 +311,10 @@ def call_ai_streaming(text: str, action: str, tone: str,
                 state._log_stats["actions"] += 1
                 state._log_stats["provider"] = "Ollama"
                 state.last_ai_provider  = "Ollama"
-                state.last_ai_fallback  = True   # we're here because NVIDIA failed/absent
+                state.last_ai_fallback  = True
                 _stream_openai(api, "", OLLAMA_MODEL, prompt,
-                               on_token, _done_wrap, _err_wrap, timeout=120)
+                               on_token, _done_wrap, _err_wrap,
+                               timeout=120, max_tokens=max_tokens)
             else:
                 log("[ERROR] No model available — set NVIDIA_API_KEY or start Ollama")
                 _err_wrap()
@@ -314,7 +326,8 @@ def call_ai_streaming(text: str, action: str, tone: str,
                 state.last_ai_provider = "NVIDIA"
                 state.last_ai_fallback = False
                 _stream_openai(NVIDIA_BASE, NVIDIA_API_KEY, NVIDIA_MODEL, prompt,
-                               on_token, _done_wrap, _try_ollama)
+                               on_token, _done_wrap, _try_ollama,
+                               max_tokens=max_tokens)
                 return
             except _ProviderRateLimited:
                 _mark_nvidia_limited()

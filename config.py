@@ -130,6 +130,73 @@ MIN_SAMPLES_FOR_PROFILE = 5
 
 # ── Action classification sets ────────────────────────────────────────────────
 
+# Per-action output token caps.
+# Lower = faster response. Set to what the action actually needs, not a
+# one-size-fits-all 512. The model still stops early when done naturally.
+ACTION_MAX_TOKENS: dict[str, int] = {
+    # Very short — single line or a few words
+    "hashtags":          60,
+    "sentiment":         40,
+    "hype_score":        80,
+    # Short — 1–3 sentences or a compact block
+    "shorter":          120,
+    "comment":          120,
+    "caption":          150,
+    "polish":           200,
+    "improve":          200,
+    "counterpoints":    200,
+    # Medium — a full reply or paragraph
+    "reply":            280,
+    "follow_up":        280,
+    "quick_reply_lead": 200,
+    "urgency_message":  200,
+    "re_engagement":    200,
+    "open_house_followup": 250,
+    "objection_reply":  250,
+    "negotiation_reply":250,
+    "schedule_showing": 200,
+    "qualify_buyer":    200,
+    # Standard — structured output, bullet lists
+    "summarize":        350,
+    "pros_cons":        380,
+    "bull_bear":        380,
+    "trade_thesis":     400,
+    "key_takeaways":    350,
+    "key_catalysts":    320,
+    "market_impact":    350,
+    "actionable_points":320,
+    "counterarguments": 350,
+    "risk_summary":     320,
+    "trade_risks":      320,
+    "simplify_thread":  300,
+    "important_changes":320,
+    "guidance_summary": 320,
+    "market_reaction":  320,
+    "explain_indicator":350,
+    # Longer — full explanations or detailed reports
+    "explain":          420,
+    "review":           420,
+    "selling_points":   380,
+    "neighborhood_highlights": 380,
+    "investment_potential":    400,
+    "client_summary":          400,
+    "luxury_tone":      350,
+    "family_tone":      300,
+    "investment_angle": 320,
+    "instagram_caption_listing": 200,
+    "compare_listings": 400,
+    "best_for_families":300,
+    "explain_contract": 450,
+    "contract_risks":   400,
+    # Inspect and custom can be long
+    "inspect":          512,
+    "journal_entry":    350,
+    "options":          350,
+    "custom":           512,
+}
+_DEFAULT_MAX_TOKENS = 400   # fallback for any action not listed above
+
+
 # Actions where inline hyperlinks make sense
 HYPERLINK_ACTIONS = {
     "summarize", "pros_cons", "explain", "review",
