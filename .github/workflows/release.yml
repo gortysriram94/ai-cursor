@@ -98,9 +98,11 @@ jobs:
       - name: Download Ollama
         run: |
           mkdir -p ollama
-          curl -L "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin" -o ollama/ollama
+          brew install ollama
+          cp "$(brew --prefix)/bin/ollama" ollama/ollama
           chmod +x ollama/ollama
-          echo "ollama: $(du -sh ollama/ollama | cut -f1)"
+          echo "ollama size: $(du -sh ollama/ollama | cut -f1)"
+          ollama/ollama --version
 
       - name: Build with PyInstaller
         run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm

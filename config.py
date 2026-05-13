@@ -40,8 +40,12 @@ except ImportError:
 
 APP_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
 
+# PyInstaller 6+ puts bundled binaries/datas inside _internal/ next to the exe.
+# sys._MEIPASS points there when frozen; fall back to APP_DIR in dev.
+_RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", str(APP_DIR)))
+
 _os = _platform.system()
-OLLAMA_EXE = APP_DIR / "ollama" / ("ollama.exe" if _os == "Windows" else "ollama")
+OLLAMA_EXE = _RESOURCE_DIR / "ollama" / ("ollama.exe" if _os == "Windows" else "ollama")
 
 if _os == "Darwin":
     OLLAMA_MODELS_DIR = Path.home() / "Library" / "Application Support" / "Pushpa" / "models"
