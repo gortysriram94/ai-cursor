@@ -47,6 +47,8 @@ a = Analysis(
         "plat.linux",
         # Core
         "ai",
+        "_version",
+        "updater",
         "config",
         "context",
         "crash",

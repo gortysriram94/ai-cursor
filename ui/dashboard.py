@@ -458,6 +458,55 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     h_outer, h_inner = scrollable(home)
     h_outer.pack(fill="both", expand=True)
 
+    # ── Update banner (shown if a newer release is available) ───────────────────
+    def _show_update_banner(info: dict):
+        banner = tk.Frame(h_inner, bg="#1E1A15", padx=14, pady=10)
+        banner.pack(fill="x", pady=(0, 8))
+        tk.Frame(banner, bg=_T["accent"], width=2).pack(side="left", fill="y", padx=(0, 10))
+        tk.Label(banner, text=f"Update available: v{info['version']}",
+                 bg="#1E1A15", fg=_T["fg"],
+                 font=("Segoe UI", 9, "bold")).pack(side="left")
+        _prog_lbl = tk.Label(banner, text="", bg="#1E1A15", fg=_T["muted"],
+                             font=("Segoe UI", 8))
+        _prog_lbl.pack(side="left", padx=(8, 0))
+        _dl_btn = tk.Label(banner, text="Download & Install",
+                           bg=_T["accent"], fg="#1A1611",
+                           font=("Segoe UI", 8, "bold"),
+                           padx=10, pady=4, cursor="hand2")
+        _dl_btn.pack(side="right")
+
+        def _start_dl(e):
+            from updater import download_and_apply, apply_update
+            _dl_btn.configure(text="Downloading…", bg=_T["panel2"], cursor="", fg=_T["dim"])
+            _dl_btn.unbind("<Button-1>")
+
+            def _prog(pct):
+                win.after(0, lambda: _prog_lbl.configure(text=f"{pct}%"))
+
+            def _done(path):
+                def _apply():
+                    _prog_lbl.configure(text="")
+                    _dl_btn.configure(text="Restarting…", fg=_T["dim"])
+                    win.after(1200, lambda: apply_update(path, root))
+                win.after(0, _apply)
+
+            def _err(msg):
+                win.after(0, lambda: _dl_btn.configure(
+                    text="Failed — retry", bg=_T["danger"], fg="#fff", cursor="hand2"))
+                win.after(0, lambda: _dl_btn.bind("<Button-1>", _start_dl))
+
+            download_and_apply(info["url"], info["version"], _prog, _done, _err)
+
+        _dl_btn.bind("<Button-1>", _start_dl)
+
+    def _check_update_bg():
+        from updater import check_for_update
+        info = check_for_update()
+        if info and win.winfo_exists():
+            win.after(0, lambda: _show_update_banner(info))
+
+    threading.Thread(target=_check_update_bg, daemon=True).start()
+
     section(h_inner, "Connection Status")
 
     # Status cards — labels filled async after window shows

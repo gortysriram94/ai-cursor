@@ -33,7 +33,7 @@ Name: "{userprograms}\AI Cursor"; Filename: "{app}\AIcursor.exe"
 Name: "{userdesktop}\AI Cursor"; Filename: "{app}\AIcursor.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\AIcursor.exe"; Description: "Launch AI Cursor now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\AIcursor.exe"; Description: "Launch AI Cursor now"; Flags: nowait postinstall
 
 [UninstallRun]
 Filename: "taskkill.exe"; Parameters: "/f /im AIcursor.exe"; Flags: runhidden

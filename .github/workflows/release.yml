@@ -37,6 +37,11 @@ jobs:
           Copy-Item ollama_tmp\ollama.exe ollama\ollama.exe
           Write-Host "ollama.exe: $([math]::Round((Get-Item ollama\ollama.exe).Length / 1MB, 1)) MB"
 
+      - name: Stamp version
+        run: |
+          $ver = "${{ env.VERSION }}".TrimStart("v")
+          "APP_VERSION = `"$ver`"" | Out-File _version.py -Encoding utf8
+
       - name: Build with PyInstaller
         run: pyinstaller pushpa.spec --noconfirm
 
