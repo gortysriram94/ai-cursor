@@ -69,7 +69,7 @@ HOTKEYS_FILE  = APP_DIR / "pushpa_hotkeys.json"
 OLLAMA_PORT   = 11435
 OLLAMA_BASE   = f"http://localhost:{OLLAMA_PORT}/v1"
 OLLAMA_API    = f"http://localhost:{OLLAMA_PORT}"
-OLLAMA_MODEL  = "llama3.2:1b"
+OLLAMA_MODEL  = "qwen2.5-coder:14b"
 OLLAMA_VISION = "llava-phi3"
 
 # Lightweight model used for background context building.

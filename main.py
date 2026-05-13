@@ -72,7 +72,7 @@ def setup_ollama() -> bool:
 
     if not is_model_pulled():
         print(f"[OLLAMA] First run — pulling {OLLAMA_MODEL}…")
-        ok = _pull_with_progress(OLLAMA_MODEL, "~1.3 GB", required=True)
+        ok = _pull_with_progress(OLLAMA_MODEL, "~9 GB", required=True)
         if not ok:
             return False
 
