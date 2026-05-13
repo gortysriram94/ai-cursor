@@ -127,6 +127,37 @@ def stop_bundled_ollama():
         state._ollama_proc = None
 
 
+def download_model_bg(model: str):
+    """Pull an Ollama model in a background thread. No Tkinter calls — writes to state only."""
+    state.model_dl_status[model] = {"text": "Connecting…"}
+    try:
+        res = requests.post(f"{OLLAMA_API}/api/pull",
+                            json={"name": model}, stream=True, timeout=None)
+        for line in res.iter_lines():
+            if not line:
+                continue
+            data = json.loads(line)
+            if "error" in data:
+                state.model_dl_status[model] = {"error": True, "text": data["error"]}
+                log(f"[PULL FAILED] {model}: {data['error']}")
+                return
+            if "total" in data and "completed" in data and data["total"] > 0:
+                pct = int(data["completed"] / data["total"] * 100)
+                mb  = data["completed"] // (1024 * 1024)
+                tot = data["total"]     // (1024 * 1024)
+                state.model_dl_status[model] = {
+                    "pct": pct, "mb": mb, "tot": tot,
+                    "text": f"{pct}%  —  {mb} MB / {tot} MB",
+                }
+            elif data.get("status"):
+                state.model_dl_status[model] = {"text": data["status"]}
+        state.model_dl_status[model] = {"done": True, "pct": 100, "text": "Ready ✓"}
+        log(f"[OLLAMA] {model} download complete")
+    except Exception as e:
+        state.model_dl_status[model] = {"error": True, "text": str(e)}
+        log(f"[PULL FAILED] {model}: {e}")
+
+
 # ── Simple (non-streaming) AI call ───────────────────────────────────────────
 
 def _call_ai_simple(prompt: str, max_tokens: int = 400, timeout: int = 30) -> str:

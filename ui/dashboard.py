@@ -402,9 +402,21 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     _started_btn.bind("<Button-1>", _go_home)
 
     # ── Poll download progress every 500ms ───────────────────────────────────
+    _dl_started = [False]
+
     def _poll_setup():
         if not win.winfo_exists():
             return
+
+        # Start download on first poll — dashboard is visible by now
+        if not _dl_started[0] and state.is_first_run:
+            _dl_started[0] = True
+            from config import OLLAMA_MODEL, OLLAMA_VISION, NVIDIA_API_KEY
+            from ai import download_model_bg, get_vision_api
+            threading.Thread(target=download_model_bg, args=(OLLAMA_MODEL,), daemon=True).start()
+            if not get_vision_api() and not NVIDIA_API_KEY:
+                threading.Thread(target=download_model_bg, args=(OLLAMA_VISION,), daemon=True).start()
+
         main_s = state.model_dl_status.get("qwen2.5:14b", {})
         done  = main_s.get("done", False)
         error = main_s.get("error", False)

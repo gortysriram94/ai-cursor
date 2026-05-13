@@ -53,42 +53,8 @@ _HK_PREV    = 7   # Alt+[ — previous section
 
 # ── Ollama setup ──────────────────────────────────────────────────────────────
 
-def _download_model_bg(model: str):
-    """Download an Ollama model in a background thread. No Tkinter calls — updates state only."""
-    import json
-    import requests as _req
-    from config import OLLAMA_API
-    state.model_dl_status[model] = {"text": "Connecting…"}
-    try:
-        res = _req.post(f"{OLLAMA_API}/api/pull",
-                        json={"name": model}, stream=True, timeout=None)
-        for line in res.iter_lines():
-            if not line:
-                continue
-            data = json.loads(line)
-            if "error" in data:
-                state.model_dl_status[model] = {"error": True, "text": data["error"]}
-                log(f"[PULL FAILED] {model}: {data['error']}")
-                return
-            if "total" in data and "completed" in data and data["total"] > 0:
-                pct = int(data["completed"] / data["total"] * 100)
-                mb  = data["completed"] // (1024 * 1024)
-                tot = data["total"]     // (1024 * 1024)
-                state.model_dl_status[model] = {
-                    "pct": pct, "mb": mb, "tot": tot,
-                    "text": f"{pct}%  —  {mb} MB / {tot} MB",
-                }
-            elif data.get("status"):
-                state.model_dl_status[model] = {"text": data["status"]}
-        state.model_dl_status[model] = {"done": True, "pct": 100, "text": "Ready ✓"}
-        log(f"[OLLAMA] {model} download complete")
-    except Exception as e:
-        state.model_dl_status[model] = {"error": True, "text": str(e)}
-        log(f"[PULL FAILED] {model}: {e}")
-
-
 def setup_ollama(root: tk.Tk) -> bool:
-    from config import OLLAMA_EXE, OLLAMA_MODEL, OLLAMA_VISION, NVIDIA_API_KEY
+    from config import OLLAMA_EXE, OLLAMA_MODEL, NVIDIA_API_KEY
     from ai import start_bundled_ollama, stop_bundled_ollama, is_model_pulled, get_vision_api
 
     log(f"[OLLAMA] exe path: {OLLAMA_EXE}  exists={OLLAMA_EXE.exists()}")
@@ -105,10 +71,7 @@ def setup_ollama(root: tk.Tk) -> bool:
 
     if not is_model_pulled():
         state.is_first_run = True
-        threading.Thread(target=_download_model_bg, args=(OLLAMA_MODEL,), daemon=True).start()
-
-    if not get_vision_api() and not NVIDIA_API_KEY:
-        threading.Thread(target=_download_model_bg, args=(OLLAMA_VISION,), daemon=True).start()
+        # Download starts when the dashboard welcome screen opens — not here
 
     return True
 
