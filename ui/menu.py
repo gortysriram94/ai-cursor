@@ -237,6 +237,23 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
     gear_btn.bind("<Enter>",    lambda e: gear_btn.configure(fg=_T["fg"]))
     gear_btn.bind("<Leave>",    lambda e: gear_btn.configure(fg=_T["fg_muted"]))
 
+    # ── Drag to move ──────────────────────────────────────────────────────────
+    _drag = {"x": 0, "y": 0}
+
+    def _drag_start(e):
+        _drag["x"] = e.x_root - win.winfo_x()
+        _drag["y"] = e.y_root - win.winfo_y()
+        _cancel_autoclose()
+
+    def _drag_move(e):
+        win.geometry(f"+{e.x_root - _drag['x']}+{e.y_root - _drag['y']}")
+
+    hdr.bind("<Button-1>",  _drag_start)
+    hdr.bind("<B1-Motion>", _drag_move)
+    # Prevent drag propagating from the clickable buttons to the header
+    x_btn.bind("<B1-Motion>",    lambda e: "break")
+    gear_btn.bind("<B1-Motion>", lambda e: "break")
+
     # ── Situation line ────────────────────────────────────────────────────────
     if situation:
         sit_frame = tk.Frame(outer, bg=_T["bg"], padx=12, pady=0)
