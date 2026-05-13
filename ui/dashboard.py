@@ -40,14 +40,16 @@ _T = {
 }
 
 _TABS = [
-    ("setup",   "✺", "Setup"),
-    ("home",    "⊞", "Home"),
-    ("hotkeys", "⌨", "Hotkeys"),
-    ("markets", "◎", "Markets"),
-    ("style",   "✦", "Style"),
-    ("memory",  "▤", "Memory"),
-    ("rules",   "⊛", "Rules"),
-    ("privacy", "⚙", "Privacy"),
+    ("setup",       "✺", "Setup"),
+    ("home",        "⊞", "Home"),
+    ("hotkeys",     "⌨", "Hotkeys"),
+    ("markets",     "◎", "Markets"),
+    ("style",       "✦", "Style"),
+    ("memory",      "▤", "Memory"),
+    ("rules",       "⊛", "Rules"),
+    ("connections", "⇌", "Connections"),
+    ("devpanel",    "⌥", "Dev Panel"),
+    ("privacy",     "⚙", "Privacy"),
 ]
 
 
@@ -1217,6 +1219,102 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     ab.bind("<Button-1>", lambda e: _add_rule())
 
     # ═══════════════════════════════════════════════════════════════════════════
+    # DEV PANEL
+    # ═══════════════════════════════════════════════════════════════════════════
+    dev_tab = make_frame("devpanel")
+    dv_outer, dv_inner = scrollable(dev_tab)
+    dv_outer.pack(fill="both", expand=True)
+
+    def _refresh_dev():
+        for w in dv_inner.winfo_children():
+            w.destroy()
+        try:
+            import rag_log
+            events = rag_log.recent(20)
+        except Exception:
+            events = []
+
+        section(dv_inner, "RAG Activity Log")
+
+        # Clear button
+        def _clear_log():
+            try:
+                import rag_log; rag_log.clear()
+            except Exception:
+                pass
+            _refresh_dev()
+
+        ctrl = tk.Frame(dv_inner, bg=_T["bg"])
+        ctrl.pack(fill="x", padx=16, pady=(0, 8))
+        tk.Label(ctrl, text=f"{len(events)} event(s) recorded this session",
+                 bg=_T["bg"], fg=_T["muted"], font=("Segoe UI", 8)).pack(side="left")
+        clr = tk.Label(ctrl, text="Clear", bg=_T["panel2"], fg=_T["muted"],
+                       font=("Segoe UI", 8), padx=8, pady=3, cursor="hand2")
+        clr.pack(side="right")
+        clr.bind("<Button-1>", lambda e: _clear_log())
+
+        if not events:
+            tk.Label(dv_inner, text="No retrieval events yet. Run an action to see activity.",
+                     bg=_T["bg"], fg=_T["muted"],
+                     font=("Segoe UI", 9), padx=20).pack(anchor="w", pady=8)
+        else:
+            for ev in events:
+                c = card(dv_inner, pady=8)
+                # Header row: status dot + context + action + age
+                top = tk.Frame(c, bg=_T["panel"])
+                top.pack(fill="x")
+                dot_col = (_T["muted"] if ev.skipped
+                           else _T["accent"] if ev.docs_kept > 0
+                           else _T["danger"])
+                tk.Label(top, text="●", bg=_T["panel"], fg=dot_col,
+                         font=("Segoe UI", 8)).pack(side="left", padx=(0, 6))
+                tk.Label(top, text=f"{ev.context_type} / {ev.action}",
+                         bg=_T["panel"], fg=_T["fg"],
+                         font=("Segoe UI", 9, "bold")).pack(side="left")
+                tk.Label(top, text=ev.age_str, bg=_T["panel"], fg=_T["muted"],
+                         font=("Segoe UI", 8)).pack(side="right")
+                # Detail row
+                if ev.skipped:
+                    detail = f"Skipped: {ev.skip_reason}"
+                elif ev.cache_hit:
+                    detail = f"Cache hit — {ev.docs_kept} docs ({ev.entity})"
+                else:
+                    detail = (f"Entity: {ev.entity}  |  "
+                              f"{ev.docs_fetched} fetched → {ev.docs_kept} kept  |  "
+                              f"{ev.latency_ms}ms")
+                tk.Label(c, text=detail, bg=_T["panel"], fg=_T["dim"],
+                         font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(2, 0))
+                # Queries (collapsed)
+                if not ev.skipped and ev.queries:
+                    q_txt = " · ".join(ev.queries[:3])
+                    tk.Label(c, text=q_txt[:90], bg=_T["panel"], fg=_T["muted"],
+                             font=("Segoe UI", 7), anchor="w").pack(anchor="w")
+
+        # Cache stats
+        section(dv_inner, "Session Cache")
+        try:
+            from retrieval_engine import _cache
+            n_cached = len(_cache)
+        except Exception:
+            n_cached = 0
+        c = card(dv_inner, pady=10)
+        tk.Label(c, text=f"{n_cached} query result(s) cached this session",
+                 bg=_T["panel"], fg=_T["dim"],
+                 font=("Segoe UI", 9)).pack(side="left", fill="x", expand=True)
+        def _clear_cache():
+            try:
+                from retrieval_engine import clear_cache; clear_cache()
+            except Exception:
+                pass
+            _refresh_dev()
+        clr2 = tk.Label(c, text="Flush", bg=_T["panel2"], fg=_T["muted"],
+                        font=("Segoe UI", 8), padx=8, pady=3, cursor="hand2")
+        clr2.pack(side="right")
+        clr2.bind("<Button-1>", lambda e: _clear_cache())
+
+    _refresh_dev()
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # PRIVACY
     # ═══════════════════════════════════════════════════════════════════════════
     ptab = make_frame("privacy")
@@ -1243,6 +1341,49 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         tk.Label(c, text=desc, bg=_T["panel"], fg=_T["muted"],
                  font=("Segoe UI", 9), anchor="w",
                  justify="left", wraplength=460).pack(anchor="w")
+
+    section(p_inner, "Web Retrieval")
+
+    from storage import load_rag_enabled, save_rag_enabled, load_rag_opt_out, save_rag_opt_out
+    from rag_config import STRATEGIES
+
+    # Master toggle
+    rag_card = card(p_inner, pady=12)
+    card_row(rag_card, "Allow web retrieval",
+             "When enabled, AI Cursor searches the web to enrich certain responses")
+    toggle_widget(rag_card, load_rag_enabled,
+                  lambda: save_rag_enabled(True),
+                  lambda: save_rag_enabled(False))
+
+    # Per-context opt-outs (most common contexts)
+    opt_card = card(p_inner, pady=10)
+    tk.Label(opt_card, text="Disable retrieval per context",
+             bg=_T["panel"], fg=_T["dim"],
+             font=("Segoe UI", 9, "bold")).pack(anchor="w")
+    tk.Label(opt_card, text="Toggle OFF to skip web search for that context type",
+             bg=_T["panel"], fg=_T["muted"],
+             font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 8))
+
+    _opt_out = load_rag_opt_out()
+    for ctx_key in ["trading", "sales", "ecommerce", "developer",
+                    "research", "real_estate", "customer_support", "generic"]:
+        meta = STRATEGIES.get(ctx_key)
+        if not meta:
+            continue
+        row = tk.Frame(opt_card, bg=_T["panel"])
+        row.pack(fill="x", pady=2)
+        tk.Label(row, text=ctx_key.replace("_", " ").title(),
+                 bg=_T["panel"], fg=_T["fg"],
+                 font=("Segoe UI", 9), width=22, anchor="w").pack(side="left")
+
+        def _make_toggle(k):
+            def _load():  return k not in load_rag_opt_out()
+            def _on():
+                s = load_rag_opt_out(); s.discard(k); save_rag_opt_out(s)
+            def _off():
+                s = load_rag_opt_out(); s.add(k);     save_rag_opt_out(s)
+            toggle_widget(row, _load, _on, _off)
+        _make_toggle(ctx_key)
 
     section(p_inner, "Clear Data")
 
@@ -1296,6 +1437,276 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                        font=("Segoe UI", 9, "bold"), padx=14, pady=6, cursor="hand2")
     all_btn.pack(side="right")
     all_btn.bind("<Button-1>", lambda e: _clear_all())
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CONNECTIONS
+    # ═══════════════════════════════════════════════════════════════════════════
+    conn_tab = make_frame("connections")
+    co_outer, co_inner = scrollable(conn_tab)
+    co_outer.pack(fill="both", expand=True)
+
+    def _refresh_conn():
+        for w in co_inner.winfo_children():
+            w.destroy()
+        from connections import load_connections, PROVIDER_TYPES
+        conns     = load_connections()
+        ai_conns  = [c for c in conns if c.is_ai_provider()]
+        ret_conns = [c for c in conns if c.is_retrieval_provider()]
+
+        def _conn_row(parent, conn):
+            c = card(parent, pady=10)
+            dot = tk.Label(c, text="●", bg=_T["panel"], fg=_T["muted"],
+                           font=("Segoe UI", 9))
+            dot.pack(side="left", padx=(0, 10))
+            left = tk.Frame(c, bg=_T["panel"])
+            left.pack(side="left", fill="x", expand=True)
+            tk.Label(left, text=conn.name, bg=_T["panel"], fg=_T["fg"],
+                     font=("Segoe UI", 9, "bold"), anchor="w").pack(anchor="w")
+            tk.Label(left, text=PROVIDER_TYPES.get(conn.type, {}).get("label", conn.type),
+                     bg=_T["panel"], fg=_T["muted"],
+                     font=("Segoe UI", 8), anchor="w").pack(anchor="w")
+
+            def _test(dot=dot, conn=conn):
+                dot.configure(fg=_T["muted"])
+                def _chk():
+                    try:
+                        from connections import (instantiate_ai_provider,
+                                                  instantiate_retrieval_provider)
+                        from keychain import load as kc_load
+                        creds = kc_load(conn.credential_ref)
+                        p = (instantiate_ai_provider(conn, creds)
+                             if conn.is_ai_provider()
+                             else instantiate_retrieval_provider(conn, creds))
+                        ok = bool(p and p.is_available())
+                    except Exception:
+                        ok = False
+                    try:
+                        dot.after(0, lambda: dot.configure(
+                            fg=_T["accent"] if ok else _T["danger"]))
+                    except Exception:
+                        pass
+                import threading as _thr
+                _thr.Thread(target=_chk, daemon=True).start()
+
+            def _delete(conn=conn):
+                from connections import delete_connection
+                from keychain import delete as kc_del
+                delete_connection(conn.id)
+                if conn.credential_ref:
+                    kc_del(conn.credential_ref)
+                _refresh_conn()
+
+            for (txt, col, fn) in [
+                ("Test",   _T["dim"],    _test),
+                ("Edit",   _T["dim"],    lambda c=conn: _open_conn_form(kind=None, conn=c)),
+                ("Delete", _T["danger"], _delete),
+            ]:
+                btn = tk.Label(c, text=txt, bg=_T["panel2"], fg=col,
+                               font=("Segoe UI", 8), padx=8, pady=3, cursor="hand2")
+                btn.pack(side="right", padx=(4, 0))
+                btn.bind("<Button-1>", lambda e, f=fn: f())
+
+        section(co_inner, "AI Providers")
+        if not ai_conns:
+            tk.Label(co_inner, text="No AI providers configured.",
+                     bg=_T["bg"], fg=_T["muted"],
+                     font=("Segoe UI", 9)).pack(anchor="w", padx=20, pady=(0, 6))
+        for c in ai_conns:
+            _conn_row(co_inner, c)
+        add_ai = tk.Label(co_inner, text="+ Add AI Provider",
+                          bg=_T["panel2"], fg=_T["accent"],
+                          font=("Segoe UI", 9), padx=12, pady=5, cursor="hand2")
+        add_ai.pack(anchor="e", padx=16, pady=(4, 12))
+        add_ai.bind("<Button-1>", lambda e: _open_conn_form(kind="ai"))
+
+        section(co_inner, "Retrieval Providers")
+        if not ret_conns:
+            tk.Label(co_inner, text="No retrieval providers configured.",
+                     bg=_T["bg"], fg=_T["muted"],
+                     font=("Segoe UI", 9)).pack(anchor="w", padx=20, pady=(0, 6))
+        for c in ret_conns:
+            _conn_row(co_inner, c)
+        add_ret = tk.Label(co_inner, text="+ Add Retrieval Provider",
+                           bg=_T["panel2"], fg=_T["accent"],
+                           font=("Segoe UI", 9), padx=12, pady=5, cursor="hand2")
+        add_ret.pack(anchor="e", padx=16, pady=(4, 12))
+        add_ret.bind("<Button-1>", lambda e: _open_conn_form(kind="retrieval"))
+
+    def _open_conn_form(kind=None, conn=None):
+        """Open the add/edit connection popup."""
+        import uuid
+        from connections import (PROVIDER_TYPES, ConnectionConfig,
+                                  upsert_connection, instantiate_ai_provider,
+                                  instantiate_retrieval_provider)
+        from keychain import store as kc_store, load as kc_load
+
+        popup = tk.Toplevel(win)
+        popup.overrideredirect(True)
+        popup.attributes("-topmost", True)
+        popup.configure(bg=_T["bg"])
+        popup.grab_set()
+
+        is_edit = conn is not None
+        title   = ("Edit Connection" if is_edit
+                   else ("Add AI Provider" if kind == "ai" else "Add Retrieval Provider"))
+
+        # Determine available types for this form
+        if kind == "ai" or (is_edit and conn.is_ai_provider()):
+            avail_types = [(k, v["label"]) for k, v in PROVIDER_TYPES.items()
+                           if v["kind"] == "ai"]
+        else:
+            avail_types = [(k, v["label"]) for k, v in PROVIDER_TYPES.items()
+                           if v["kind"] == "retrieval"]
+
+        # ── Popup layout ──────────────────────────────────────────────────────
+        outer = tk.Frame(popup, bg=_T["bg"], padx=20, pady=16)
+        outer.pack()
+
+        # Header
+        hdr = tk.Frame(outer, bg=_T["bg"])
+        hdr.pack(fill="x")
+        tk.Label(hdr, text=title, bg=_T["bg"], fg=_T["fg"],
+                 font=("Segoe UI", 11, "bold")).pack(side="left")
+        tk.Label(hdr, text="✕", bg=_T["bg"], fg=_T["muted"],
+                 font=("Segoe UI", 11), cursor="hand2").pack(side="right")\
+          .bind("<Button-1>", lambda e: popup.destroy())
+        tk.Frame(outer, bg=_T["border"], height=1).pack(fill="x", pady=(10, 12))
+
+        # Name field
+        tk.Label(outer, text="Name", bg=_T["bg"], fg=_T["dim"],
+                 font=("Segoe UI", 9)).pack(anchor="w")
+        name_var = tk.StringVar(value=conn.name if is_edit else "")
+        tk.Entry(outer, textvariable=name_var, bg=_T["panel2"], fg=_T["fg"],
+                 insertbackground=_T["fg"], relief="flat",
+                 font=("Segoe UI", 9), width=36).pack(fill="x", pady=(2, 10))
+
+        # Type selector (disabled on edit)
+        tk.Label(outer, text="Provider Type", bg=_T["bg"], fg=_T["dim"],
+                 font=("Segoe UI", 9)).pack(anchor="w")
+        type_var = tk.StringVar(value=conn.type if is_edit else avail_types[0][0])
+        import tkinter.ttk as ttk_
+        type_combo = ttk_.Combobox(
+            outer, textvariable=type_var,
+            values=[t[0] for t in avail_types],
+            state="readonly" if not is_edit else "disabled",
+            font=("Segoe UI", 9), width=34,
+        )
+        type_combo.pack(fill="x", pady=(2, 10))
+
+        # Dynamic fields area
+        fields_frame = tk.Frame(outer, bg=_T["bg"])
+        fields_frame.pack(fill="x")
+        cred_frame   = tk.Frame(outer, bg=_T["bg"])
+        cred_frame.pack(fill="x")
+
+        field_vars: dict[str, tk.StringVar] = {}
+        cred_vars:  dict[str, tk.StringVar] = {}
+
+        def _build_fields(selected_type: str):
+            for w in fields_frame.winfo_children(): w.destroy()
+            for w in cred_frame.winfo_children():   w.destroy()
+            field_vars.clear()
+            cred_vars.clear()
+
+            meta      = PROVIDER_TYPES.get(selected_type, {})
+            existing_settings = conn.settings if is_edit else {}
+            existing_creds    = kc_load(conn.credential_ref) if is_edit and conn.credential_ref else {}
+
+            # Settings fields
+            for f in meta.get("fields", []):
+                tk.Label(fields_frame, text=f["label"], bg=_T["bg"], fg=_T["dim"],
+                         font=("Segoe UI", 9)).pack(anchor="w")
+                var = tk.StringVar(value=existing_settings.get(f["key"],
+                                                                f.get("default", "")))
+                tk.Entry(fields_frame, textvariable=var, bg=_T["panel2"], fg=_T["fg"],
+                         insertbackground=_T["fg"], relief="flat",
+                         font=("Segoe UI", 9), width=36).pack(fill="x", pady=(2, 8))
+                field_vars[f["key"]] = var
+
+            # Credential fields (masked)
+            if meta.get("credential_fields"):
+                tk.Frame(cred_frame, bg=_T["border"], height=1).pack(fill="x", pady=6)
+                tk.Label(cred_frame, text="Credentials (stored in OS keychain)",
+                         bg=_T["bg"], fg=_T["muted"],
+                         font=("Segoe UI", 8, "italic")).pack(anchor="w", pady=(0, 6))
+            for f in meta.get("credential_fields", []):
+                tk.Label(cred_frame, text=f["label"], bg=_T["bg"], fg=_T["dim"],
+                         font=("Segoe UI", 9)).pack(anchor="w")
+                placeholder = "••••••••" if (is_edit and existing_creds.get(f["key"])) else ""
+                var = tk.StringVar(value=placeholder)
+                e   = tk.Entry(cred_frame, textvariable=var, bg=_T["panel2"], fg=_T["fg"],
+                               insertbackground=_T["fg"], relief="flat",
+                               font=("Segoe UI", 9), width=36, show="•")
+                e.pack(fill="x", pady=(2, 8))
+                # Clear placeholder on first keystroke so user can type freely
+                def _clear_ph(event, var=var):
+                    if var.get() == "••••••••":
+                        var.set("")
+                e.bind("<Key>", _clear_ph)
+                cred_vars[f["key"]] = var
+
+        _build_fields(type_var.get())
+        type_var.trace_add("write", lambda *_: _build_fields(type_var.get()))
+
+        # Status label
+        status_lbl = tk.Label(outer, text="", bg=_T["bg"], fg=_T["muted"],
+                              font=("Segoe UI", 8))
+        status_lbl.pack(anchor="w", pady=(6, 0))
+
+        # Footer buttons
+        tk.Frame(outer, bg=_T["border"], height=1).pack(fill="x", pady=(10, 8))
+        foot = tk.Frame(outer, bg=_T["bg"])
+        foot.pack(fill="x")
+
+        def _save():
+            name = name_var.get().strip()
+            if not name:
+                status_lbl.configure(text="Name is required.", fg=_T["danger"])
+                return
+
+            selected = type_var.get()
+            settings = {k: v.get().strip() for k, v in field_vars.items()}
+            creds    = {k: v.get() for k, v in cred_vars.items()
+                        if v.get() and v.get() != "••••••••"}
+
+            conn_id = conn.id if is_edit else str(uuid.uuid4())[:8]
+            ref     = f"conn-{conn_id}"
+
+            cfg = ConnectionConfig(
+                id             = conn_id,
+                name           = name,
+                type           = selected,
+                settings       = settings,
+                credential_ref = ref,
+            )
+            errors = cfg.validate()
+            if errors:
+                status_lbl.configure(text=errors[0], fg=_T["danger"])
+                return
+
+            if creds:
+                kc_store(ref, creds)
+            upsert_connection(cfg)
+            popup.destroy()
+            _refresh_conn()
+
+        cancel_btn = tk.Label(foot, text="Cancel", bg=_T["panel2"], fg=_T["dim"],
+                              font=("Segoe UI", 9), padx=14, pady=5, cursor="hand2")
+        cancel_btn.pack(side="left")
+        cancel_btn.bind("<Button-1>", lambda e: popup.destroy())
+
+        save_btn = tk.Label(foot, text="Save", bg=_T["accent"], fg="#1A1611",
+                            font=("Segoe UI", 9, "bold"), padx=16, pady=5, cursor="hand2")
+        save_btn.pack(side="right")
+        save_btn.bind("<Button-1>", lambda e: _save())
+
+        popup.update_idletasks()
+        pw, ph = popup.winfo_reqwidth(), popup.winfo_reqheight()
+        wx, wy = win.winfo_x(), win.winfo_y()
+        ww, wh = win.winfo_width(), win.winfo_height()
+        popup.geometry(f"+{wx + (ww - pw)//2}+{wy + (wh - ph)//2}")
+
+    _refresh_conn()
 
     # ── Show ──────────────────────────────────────────────────────────────────
     switch(initial_tab if initial_tab in _frames else "home")

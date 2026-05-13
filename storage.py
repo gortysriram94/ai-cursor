@@ -237,6 +237,44 @@ def save_compact_destination_path(path: str):
         log(f"[PREFS] compact_destination_path save failed: {e}")
 
 
+# ── RAG opt-out ──────────────────────────────────────────────────────────────
+
+def load_rag_opt_out() -> set:
+    """Return set of context_type strings that have web retrieval disabled."""
+    try:
+        prefs = json.loads(PREFS_FILE.read_text(encoding="utf-8")) if PREFS_FILE.exists() else {}
+        return set(prefs.get("rag_opt_out", []))
+    except Exception:
+        return set()
+
+
+def save_rag_opt_out(opt_out: set) -> None:
+    try:
+        prefs = json.loads(PREFS_FILE.read_text(encoding="utf-8")) if PREFS_FILE.exists() else {}
+        prefs["rag_opt_out"] = sorted(opt_out)
+        PREFS_FILE.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+    except Exception as e:
+        log(f"[PREFS] rag opt-out save failed: {e}")
+
+
+def load_rag_enabled() -> bool:
+    """Master switch — False disables all web retrieval."""
+    try:
+        prefs = json.loads(PREFS_FILE.read_text(encoding="utf-8")) if PREFS_FILE.exists() else {}
+        return bool(prefs.get("rag_enabled", True))
+    except Exception:
+        return True
+
+
+def save_rag_enabled(enabled: bool) -> None:
+    try:
+        prefs = json.loads(PREFS_FILE.read_text(encoding="utf-8")) if PREFS_FILE.exists() else {}
+        prefs["rag_enabled"] = enabled
+        PREFS_FILE.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+    except Exception as e:
+        log(f"[PREFS] rag_enabled save failed: {e}")
+
+
 # ── Hotkeys ───────────────────────────────────────────────────────────────────
 
 def load_hotkeys() -> dict:

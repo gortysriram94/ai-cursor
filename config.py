@@ -61,7 +61,8 @@ DEBUG_OVERLAY  = os.environ.get("PUSHPA_DEBUG_OVERLAY", "0") == "1"  # floating 
 HISTORY_FILE  = APP_DIR / "pushpa_history.json"
 PREFS_FILE    = APP_DIR / "pushpa_prefs.json"
 STYLE_FILE    = APP_DIR / "pushpa_style.json"
-HOTKEYS_FILE  = APP_DIR / "pushpa_hotkeys.json"
+HOTKEYS_FILE      = APP_DIR / "pushpa_hotkeys.json"
+CONNECTIONS_FILE  = APP_DIR / "pushpa_connections.json"
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────────

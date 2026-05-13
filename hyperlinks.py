@@ -28,17 +28,19 @@ def _extract_urls(text: str) -> list[str]:
 
 # ── Jina reader ───────────────────────────────────────────────────────────────
 
+def _jina_headers() -> dict:
+    h = {"Accept": "application/json"}
+    if JINA_API_KEY:
+        h["Authorization"] = f"Bearer {JINA_API_KEY}"
+    return h
+
+
 def _jina_read(url: str) -> dict:
     """Fetch page content via Jina Reader. Returns {title, content, url} or {}."""
-    if not JINA_API_KEY:
-        return {}
     try:
         res = requests.get(
             f"https://r.jina.ai/{url}",
-            headers={
-                "Authorization": f"Bearer {JINA_API_KEY}",
-                "Accept":        "application/json",
-            },
+            headers=_jina_headers(),
             timeout=15,
         )
         return res.json().get("data", {})
@@ -50,15 +52,10 @@ def _jina_read(url: str) -> dict:
 
 def _jina_search(query: str) -> str:
     """Returns top URL for query via Jina Search, or empty string."""
-    if not JINA_API_KEY:
-        return ""
     try:
         res = requests.get(
             JINA_SEARCH_URL + urllib.parse.quote(query),
-            headers={
-                "Authorization": f"Bearer {JINA_API_KEY}",
-                "Accept":        "application/json",
-            },
+            headers=_jina_headers(),
             timeout=8,
         )
         data    = res.json()

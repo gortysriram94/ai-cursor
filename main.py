@@ -332,6 +332,16 @@ def main():
 
     setup_ollama(root)
 
+    # ── Enterprise connections ────────────────────────────────────────────────
+    # Load stored credentials from OS keychain and register enterprise AI/RAG
+    # providers so they're available before any AI call happens.
+    try:
+        from keychain import load_all_connection_creds
+        from connections import load_into_registries
+        load_into_registries(load_all_connection_creds())
+    except Exception as _conn_err:
+        log(f"[CONNECTIONS] startup load failed: {_conn_err}")
+
     from config import NVIDIA_API_KEY, OLLAMA_MODEL
     local_api = get_ollama_api()
     print("=" * 40)

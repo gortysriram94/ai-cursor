@@ -69,8 +69,6 @@ current_section_idx:  int  = -1  # index of section currently at top of viewport
 
 # ── AI provider state ─────────────────────────────────────────────────────────
 
-_nvidia_cooldown_until = [0.0]
-
 _ollama_proc: subprocess.Popen | None = None
 
 # ── First-run / model download ────────────────────────────────────────────────

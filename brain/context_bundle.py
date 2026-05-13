@@ -20,9 +20,10 @@ class ContextBundle:
     context_type: str   = "generic"
     market:       str   = "generic"
     situation:    str   = ""
-    entities:     list  = field(default_factory=list)
-    confidence:   float = 0.0
-    signals:      "ContentSignals | None" = None
+    entities:      list  = field(default_factory=list)
+    confidence:    float = 0.0
+    signals:       "ContentSignals | None" = None
+    retrieved_docs: list = field(default_factory=list)   # list[Document] — injected by retrieval_engine
 
     @classmethod
     def from_working_context(cls, ctx: "WorkingContext") -> "ContextBundle":

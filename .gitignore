@@ -30,6 +30,7 @@ pushpa_style.json
 pushpa_hotkeys.json
 pushpa_memory.json
 pushpa_rules.json
+pushpa_connections.json
 
 # Environment / secrets
 .env

@@ -740,7 +740,8 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
     result_text.bind("<MouseWheel>",
                      lambda e: result_text.yview_scroll(int(-1*(e.delta/120)), "units"))
 
-    footer = tk.Frame(body_frame, bg=R_BG)
+    footer      = tk.Frame(body_frame, bg=R_BG)
+    sources_bar = tk.Frame(body_frame, bg=R_BG)   # populated after retrieval
 
     win.geometry(f"+{x}+{y}")
     win.bind("<Escape>", lambda e: win.destroy())
@@ -807,6 +808,7 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
             return
 
         save_history(app_name, action, result, tone)
+        win.after(100, _show_sources)
 
         # Detect code presence for the Canvas button shown in footer
         from ui.canvas import _is_code_response
@@ -1180,12 +1182,51 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
         win.after(2000, win.destroy)
         return
 
+    _retrieved_sources: list = []
+
+    def _status_cb(msg: str):
+        try:
+            win.after(0, lambda: status_lbl.configure(text=msg, fg=R_MUTED))
+        except Exception:
+            pass
+
+    def _on_sources(docs: list):
+        _retrieved_sources.clear()
+        _retrieved_sources.extend(docs)
+
+    def _show_sources():
+        """Render source attribution bar below the result footer."""
+        if not _retrieved_sources:
+            return
+        try:
+            import time as _t
+            import webbrowser
+            for w in sources_bar.winfo_children():
+                w.destroy()
+            tk.Frame(sources_bar, bg=R_BORDER, height=1).pack(fill="x")
+            row = tk.Frame(sources_bar, bg=R_BG, padx=12, pady=6)
+            row.pack(fill="x")
+            tk.Label(row, text="Sources:", bg=R_BG, fg=R_MUTED,
+                     font=("Segoe UI", 7, "bold")).pack(side="left", padx=(0, 8))
+            for doc in _retrieved_sources[:4]:
+                label  = (doc.title or doc.source or "")[:40]
+                age    = int(_t.time() - doc.fetched_at)
+                age_s  = f"{age//60}m" if age < 3600 else f"{age//3600}h"
+                tip    = f"{label} · {age_s} ago"
+                lbl    = tk.Label(row, text=label or "source", bg=R_SURFACE,
+                                  fg=R_DIM, font=("Segoe UI", 7),
+                                  padx=6, pady=2, cursor="hand2")
+                lbl.pack(side="left", padx=2)
+                if doc.source:
+                    lbl.bind("<Button-1>", lambda e, u=doc.source: webbrowser.open(u))
+                lbl.bind("<Enter>", lambda e, w=lbl: w.configure(bg=R_HOVER))
+                lbl.bind("<Leave>", lambda e, w=lbl: w.configure(bg=R_SURFACE))
+            sources_bar.pack(fill="x")
+            win.update_idletasks()
+        except Exception as e:
+            log(f"[SOURCES] render failed: {e}")
+
     if text and _is_link_aware:
-        def _status_cb(msg: str):
-            try:
-                win.after(0, lambda: status_lbl.configure(text=msg, fg=R_MUTED))
-            except Exception:
-                pass
         call_link_aware_streaming(text, _detected_urls, action, tone,
                                   on_token, on_done, _on_error,
                                   status_cb=_status_cb, app_name=b.app_name)
@@ -1193,7 +1234,9 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
         log(f"[MODE] text ({len(text)} chars) → {action}")
         call_ai_streaming(text, action, tone, on_token, on_done, _on_error,
                           custom_instruction=custom_instruction,
-                          bundle=b)
+                          bundle=b,
+                          status_cb=_status_cb,
+                          on_sources=_on_sources)
     elif screenshot and is_vision_model_available():
         log(f"[MODE] vision → {action} (no text captured)")
         call_ai_vision_streaming(screenshot, action, on_token, on_done, _on_error,

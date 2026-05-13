@@ -1109,6 +1109,27 @@ def _universal_followup_prompt(
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
+def _build_retrieval_block(docs: list) -> str:
+    """
+    Format retrieved documents for injection into the prompt.
+    Called only when bundle.retrieved_docs is non-empty.
+    """
+    if not docs:
+        return ""
+    lines = [
+        "---",
+        "Retrieved context — use this to inform your response, cite sources where helpful:",
+    ]
+    for i, doc in enumerate(docs[:5], 1):
+        label = doc.title or doc.source or f"Source {i}"
+        lines.append(f"\n[{i}] {label}")
+        if doc.source and doc.source != label:
+            lines.append(f"URL: {doc.source}")
+        lines.append(doc.content[:800].strip())
+    lines.append("---")
+    return "\n".join(lines)
+
+
 def build_prompt(text: str, action: str, tone: str,
                  custom_instruction: str = "",
                  bundle: "ContextBundle | None" = None) -> str:
@@ -1116,17 +1137,23 @@ def build_prompt(text: str, action: str, tone: str,
     Build the full LLM prompt for a given action.
     All brain-context params (app_name, context_type, situation, etc.)
     are passed as a single ContextBundle instead of individual kwargs.
+    If bundle.retrieved_docs is set, retrieved context is injected before the
+    action prompt so the model can cite external sources.
     """
     b            = bundle or ContextBundle.empty()
     context_type = b.context_type or "generic"
     tone_instr   = TONE_INSTRUCTIONS[tone]
     system       = compose_context(app_name=b.app_name, text=text, action=action)
 
+    retrieval_block = _build_retrieval_block(getattr(b, "retrieved_docs", []))
+
     if action == "custom":
         parts = [system, tone_instr]
         ctx_block = _build_context_block(b.app_name, b.situation, b.confidence, b.signals).strip()
         if ctx_block:
             parts.append(ctx_block)
+        if retrieval_block:
+            parts.append(retrieval_block)
         parts.append(custom_instruction)
         if text:
             parts.append(f"Text:\n{text}")
@@ -1143,4 +1170,8 @@ def build_prompt(text: str, action: str, tone: str,
     else:
         action_prompt = ACTION_PROMPTS[action](text)
 
-    return "\n\n".join([system, tone_instr, action_prompt])
+    parts = [system, tone_instr]
+    if retrieval_block:
+        parts.append(retrieval_block)
+    parts.append(action_prompt)
+    return "\n\n".join(parts)
