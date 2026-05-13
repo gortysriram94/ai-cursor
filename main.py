@@ -53,7 +53,7 @@ _HK_PREV    = 7   # Alt+[ — previous section
 
 # ── Ollama setup ──────────────────────────────────────────────────────────────
 
-def setup_ollama() -> bool:
+def setup_ollama(root: tk.Tk) -> bool:
     from config import OLLAMA_EXE, OLLAMA_MODEL, OLLAMA_VISION, NVIDIA_API_KEY
     from ai import (
         start_bundled_ollama, stop_bundled_ollama,
@@ -74,27 +74,27 @@ def setup_ollama() -> bool:
 
     if not is_model_pulled():
         print(f"[OLLAMA] First run — pulling {OLLAMA_MODEL}…")
-        ok = _pull_with_progress(OLLAMA_MODEL, "~9 GB", required=True)
+        ok = _pull_with_progress(root, OLLAMA_MODEL, "~9 GB", required=True)
         if not ok:
             return False
 
     if not get_vision_api() and not NVIDIA_API_KEY:
         threading.Thread(
             target=lambda: _pull_with_progress(
-                OLLAMA_VISION, "~1.7 GB", required=False),
+                root, OLLAMA_VISION, "~1.7 GB", required=False),
             daemon=True,
         ).start()
 
     return is_model_pulled()
 
 
-def _pull_with_progress(model: str, size_hint: str, required: bool) -> bool:
+def _pull_with_progress(root: tk.Tk, model: str, size_hint: str, required: bool) -> bool:
     """Tk progress window for Ollama model pulls."""
     import json, requests as _req
     from config import OLLAMA_API
     import tkinter.ttk as ttk
 
-    win = tk.Tk()
+    win = tk.Toplevel(root)
     win.title("AI Cursor — Setup")
     win.resizable(False, False)
     win.configure(bg=BG)
@@ -149,13 +149,14 @@ def _pull_with_progress(model: str, size_hint: str, required: bool) -> bool:
             win.after(0, win.destroy)
         except Exception as e:
             log(f"[PULL FAILED] {model}: {e}")
-            win.after(0, lambda: (
-                bar.configure(value=0),
-                status_lbl.configure(text="Failed — check pushpa.log", fg="#f87171"),
-            ))
+            def _show_err():
+                bar.configure(value=0)
+                status_lbl.configure(text="Download failed — close and relaunch to retry", fg="#f87171")
+                win.protocol("WM_DELETE_WINDOW", win.destroy)
+            win.after(0, _show_err)
 
     threading.Thread(target=do_pull, daemon=True).start()
-    win.mainloop()
+    win.wait_window(win)
     return success.is_set()
 
 
@@ -391,9 +392,26 @@ def main():
     _start_session()
     atexit.register(_end_session)
 
+    # ── Single-instance guard ─────────────────────────────────────────────────
+    if sys.platform == "win32":
+        _mutex = ctypes.windll.kernel32.CreateMutexW(None, True, "Global\\AICursorSingleInstance")
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "AI Cursor is already running.\n\nCheck the system tray.",
+                "AI Cursor",
+                0x40,  # MB_ICONINFORMATION
+            )
+            sys.exit(0)
+
     _set_dpi_awareness()   # must be before tk.Tk()
 
-    setup_ollama()
+    # ── Create root FIRST so _pull_with_progress can use Toplevel (not Tk) ───
+    _TRANSP = "#000001"
+    root = tk.Tk()
+    root.withdraw()   # hide during setup; shown after
+
+    setup_ollama(root)
 
     from config import NVIDIA_API_KEY, OLLAMA_MODEL
     local_api = get_ollama_api()
@@ -403,14 +421,13 @@ def main():
     print(f"  Local: {OLLAMA_MODEL if local_api else 'not running'}")
     print("=" * 40 + "\n")
 
-    # ── Tkinter root (invisible 1×1 anchor) ──────────────────────────────────
-    _TRANSP = "#000001"
-    root = tk.Tk()
+    # ── Configure root as invisible 1×1 anchor ────────────────────────────────
     root.overrideredirect(True)
     root.attributes("-topmost",          True)
     root.attributes("-transparentcolor", _TRANSP)
     root.configure(bg=_TRANSP)
     root.geometry("1x1+0+0")
+    root.deiconify()
 
     # ── Flame cursor ──────────────────────────────────────────────────────────
     if load_flame_cursor():
