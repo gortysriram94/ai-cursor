@@ -90,7 +90,7 @@ def setup_ollama(root: tk.Tk) -> bool:
 
 def _pull_with_progress(root: tk.Tk, model: str, size_hint: str, required: bool) -> bool:
     """Tk progress window for Ollama model pulls."""
-    import json, requests as _req
+    import json, queue as _queue, requests as _req
     from config import OLLAMA_API
     import tkinter.ttk as ttk
 
@@ -123,6 +123,8 @@ def _pull_with_progress(root: tk.Tk, model: str, size_hint: str, required: bool)
              bg=BG, fg=FG_MUT, font=("Segoe UI", 8)).pack(anchor="w", pady=(6, 0))
 
     success = threading.Event()
+    # Thread -> main thread communication (Python 3.13 forbids Tkinter calls from threads)
+    _q: _queue.Queue = _queue.Queue()
 
     def do_pull():
         try:
@@ -138,24 +140,41 @@ def _pull_with_progress(root: tk.Tk, model: str, size_hint: str, required: bool)
                     pct = int(data["completed"] / data["total"] * 100)
                     mb  = data["completed"] // (1024 * 1024)
                     tot = data["total"]     // (1024 * 1024)
-                    win.after(0, lambda p=pct, m=mb, t=tot: (
-                        bar.configure(value=p),
-                        status_lbl.configure(text=f"{p}%  —  {m} MB / {t} MB"),
-                    ))
+                    _q.put(("progress", pct, mb, tot))
                 elif data.get("status"):
-                    win.after(0, lambda s=data["status"]:
-                              status_lbl.configure(text=s))
+                    _q.put(("status", data["status"]))
             success.set()
-            win.after(0, win.destroy)
+            _q.put(("done",))
         except Exception as e:
             log(f"[PULL FAILED] {model}: {e}")
-            def _show_err():
-                bar.configure(value=0)
-                status_lbl.configure(text="Download failed — close and relaunch to retry", fg="#f87171")
-                win.protocol("WM_DELETE_WINDOW", win.destroy)
-            win.after(0, _show_err)
+            _q.put(("error",))
+
+    def poll():
+        try:
+            while True:
+                msg = _q.get_nowait()
+                if msg[0] == "progress":
+                    bar.configure(value=msg[1])
+                    status_lbl.configure(text=f"{msg[1]}%  —  {msg[2]} MB / {msg[3]} MB")
+                elif msg[0] == "status":
+                    status_lbl.configure(text=msg[1])
+                elif msg[0] == "done":
+                    win.destroy()
+                    return
+                elif msg[0] == "error":
+                    bar.configure(value=0)
+                    status_lbl.configure(
+                        text="Download failed — close and relaunch to retry",
+                        fg="#f87171")
+                    win.protocol("WM_DELETE_WINDOW", win.destroy)
+                    return
+        except _queue.Empty:
+            pass
+        if win.winfo_exists():
+            win.after(50, poll)
 
     threading.Thread(target=do_pull, daemon=True).start()
+    win.after(50, poll)
     win.wait_window(win)
     return success.is_set()
 
@@ -409,7 +428,10 @@ def main():
     # ── Create root FIRST so _pull_with_progress can use Toplevel (not Tk) ───
     _TRANSP = "#000001"
     root = tk.Tk()
-    root.withdraw()   # hide during setup; shown after
+    root.overrideredirect(True)
+    root.attributes("-transparentcolor", _TRANSP)
+    root.configure(bg=_TRANSP)
+    root.geometry("1x1+0+0")
 
     setup_ollama(root)
 
@@ -421,13 +443,7 @@ def main():
     print(f"  Local: {OLLAMA_MODEL if local_api else 'not running'}")
     print("=" * 40 + "\n")
 
-    # ── Configure root as invisible 1×1 anchor ────────────────────────────────
-    root.overrideredirect(True)
-    root.attributes("-topmost",          True)
-    root.attributes("-transparentcolor", _TRANSP)
-    root.configure(bg=_TRANSP)
-    root.geometry("1x1+0+0")
-    root.deiconify()
+    root.attributes("-topmost", True)
 
     # ── Flame cursor ──────────────────────────────────────────────────────────
     if load_flame_cursor():
