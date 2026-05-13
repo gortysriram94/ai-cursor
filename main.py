@@ -134,7 +134,7 @@ def _pull_with_progress(model: str, size_hint: str, required: bool) -> bool:
                 data = json.loads(line)
                 if "error" in data:
                     raise Exception(data["error"])
-                if "total" in data and data["total"] > 0:
+                if "total" in data and "completed" in data and data["total"] > 0:
                     pct = int(data["completed"] / data["total"] * 100)
                     mb  = data["completed"] // (1024 * 1024)
                     tot = data["total"]     // (1024 * 1024)
