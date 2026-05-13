@@ -53,12 +53,43 @@ _HK_PREV    = 7   # Alt+[ — previous section
 
 # ── Ollama setup ──────────────────────────────────────────────────────────────
 
+def _download_model_bg(model: str):
+    """Download an Ollama model in a background thread. No Tkinter calls — updates state only."""
+    import json
+    import requests as _req
+    from config import OLLAMA_API
+    state.model_dl_status[model] = {"text": "Connecting…"}
+    try:
+        res = _req.post(f"{OLLAMA_API}/api/pull",
+                        json={"name": model}, stream=True, timeout=None)
+        for line in res.iter_lines():
+            if not line:
+                continue
+            data = json.loads(line)
+            if "error" in data:
+                state.model_dl_status[model] = {"error": True, "text": data["error"]}
+                log(f"[PULL FAILED] {model}: {data['error']}")
+                return
+            if "total" in data and "completed" in data and data["total"] > 0:
+                pct = int(data["completed"] / data["total"] * 100)
+                mb  = data["completed"] // (1024 * 1024)
+                tot = data["total"]     // (1024 * 1024)
+                state.model_dl_status[model] = {
+                    "pct": pct, "mb": mb, "tot": tot,
+                    "text": f"{pct}%  —  {mb} MB / {tot} MB",
+                }
+            elif data.get("status"):
+                state.model_dl_status[model] = {"text": data["status"]}
+        state.model_dl_status[model] = {"done": True, "pct": 100, "text": "Ready ✓"}
+        log(f"[OLLAMA] {model} download complete")
+    except Exception as e:
+        state.model_dl_status[model] = {"error": True, "text": str(e)}
+        log(f"[PULL FAILED] {model}: {e}")
+
+
 def setup_ollama(root: tk.Tk) -> bool:
     from config import OLLAMA_EXE, OLLAMA_MODEL, OLLAMA_VISION, NVIDIA_API_KEY
-    from ai import (
-        start_bundled_ollama, stop_bundled_ollama,
-        is_model_pulled, get_vision_api,
-    )
+    from ai import start_bundled_ollama, stop_bundled_ollama, is_model_pulled, get_vision_api
 
     log(f"[OLLAMA] exe path: {OLLAMA_EXE}  exists={OLLAMA_EXE.exists()}")
     if not OLLAMA_EXE.exists():
@@ -73,110 +104,13 @@ def setup_ollama(root: tk.Tk) -> bool:
     atexit.register(stop_bundled_ollama)
 
     if not is_model_pulled():
-        print(f"[OLLAMA] First run — pulling {OLLAMA_MODEL}…")
-        ok = _pull_with_progress(root, OLLAMA_MODEL, "~9 GB", required=True)
-        if not ok:
-            return False
+        state.is_first_run = True
+        threading.Thread(target=_download_model_bg, args=(OLLAMA_MODEL,), daemon=True).start()
 
     if not get_vision_api() and not NVIDIA_API_KEY:
-        threading.Thread(
-            target=lambda: _pull_with_progress(
-                root, OLLAMA_VISION, "~1.7 GB", required=False),
-            daemon=True,
-        ).start()
+        threading.Thread(target=_download_model_bg, args=(OLLAMA_VISION,), daemon=True).start()
 
-    return is_model_pulled()
-
-
-def _pull_with_progress(root: tk.Tk, model: str, size_hint: str, required: bool) -> bool:
-    """Tk progress window for Ollama model pulls."""
-    import json, queue as _queue, requests as _req
-    from config import OLLAMA_API
-    import tkinter.ttk as ttk
-
-    win = tk.Toplevel(root)
-    win.title("AI Cursor — Setup")
-    win.resizable(False, False)
-    win.configure(bg=BG)
-    win.attributes("-topmost", True)
-    win.protocol("WM_DELETE_WINDOW", lambda: None if required else win.destroy())
-    win.update_idletasks()
-    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-    win.geometry(f"400x180+{(sw-400)//2}+{(sh-180)//2}")
-
-    outer = tk.Frame(win, bg=BG, padx=20, pady=16)
-    outer.pack(fill="both", expand=True)
-    hdr = tk.Frame(outer, bg=BG)
-    hdr.pack(fill="x")
-    dot_widget(hdr).pack(side="left", padx=(0, 8))
-    tk.Label(hdr, text=f"Downloading {model}", bg=BG, fg=FG,
-             font=("Segoe UI", 11, "bold")).pack(side="left")
-
-    status_lbl = tk.Label(outer, text="Starting…", bg=BG, fg=FG_DIM,
-                          font=("Segoe UI", 9))
-    status_lbl.pack(anchor="w", pady=(10, 4))
-
-    bar = ttk.Progressbar(outer, mode="determinate", length=360, maximum=100)
-    bar.pack(fill="x")
-
-    tk.Label(outer, text=f"One-time  ·  {size_hint}  ·  resumes if interrupted",
-             bg=BG, fg=FG_MUT, font=("Segoe UI", 8)).pack(anchor="w", pady=(6, 0))
-
-    success = threading.Event()
-    # Thread -> main thread communication (Python 3.13 forbids Tkinter calls from threads)
-    _q: _queue.Queue = _queue.Queue()
-
-    def do_pull():
-        try:
-            res = _req.post(f"{OLLAMA_API}/api/pull",
-                            json={"name": model}, stream=True, timeout=None)
-            for line in res.iter_lines():
-                if not line:
-                    continue
-                data = json.loads(line)
-                if "error" in data:
-                    raise Exception(data["error"])
-                if "total" in data and "completed" in data and data["total"] > 0:
-                    pct = int(data["completed"] / data["total"] * 100)
-                    mb  = data["completed"] // (1024 * 1024)
-                    tot = data["total"]     // (1024 * 1024)
-                    _q.put(("progress", pct, mb, tot))
-                elif data.get("status"):
-                    _q.put(("status", data["status"]))
-            success.set()
-            _q.put(("done",))
-        except Exception as e:
-            log(f"[PULL FAILED] {model}: {e}")
-            _q.put(("error",))
-
-    def poll():
-        try:
-            while True:
-                msg = _q.get_nowait()
-                if msg[0] == "progress":
-                    bar.configure(value=msg[1])
-                    status_lbl.configure(text=f"{msg[1]}%  —  {msg[2]} MB / {msg[3]} MB")
-                elif msg[0] == "status":
-                    status_lbl.configure(text=msg[1])
-                elif msg[0] == "done":
-                    win.destroy()
-                    return
-                elif msg[0] == "error":
-                    bar.configure(value=0)
-                    status_lbl.configure(
-                        text="Download failed — close and relaunch to retry",
-                        fg="#f87171")
-                    win.protocol("WM_DELETE_WINDOW", win.destroy)
-                    return
-        except _queue.Empty:
-            pass
-        if win.winfo_exists():
-            win.after(50, poll)
-
-    threading.Thread(target=do_pull, daemon=True).start()
-    win.after(50, poll)
-    win.wait_window(win)
-    return success.is_set()
+    return True
 
 
 def _show_dashboard(root: tk.Tk):
@@ -487,6 +421,11 @@ def main():
     # ── Crash recovery ────────────────────────────────────────────────────────
     from crash import install_crash_handlers
     install_crash_handlers(root, platform_instance=plat)
+
+    # ── First-run: open dashboard to welcome/setup screen ────────────────────
+    if state.is_first_run:
+        from ui.dashboard import show_dashboard
+        root.after(800, lambda: show_dashboard(root, initial_tab="setup"))
 
     # ── Form fill trigger ─────────────────────────────────────────────────────
 

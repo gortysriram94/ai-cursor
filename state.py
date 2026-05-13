@@ -72,3 +72,9 @@ current_section_idx:  int  = -1  # index of section currently at top of viewport
 _nvidia_cooldown_until = [0.0]
 
 _ollama_proc: subprocess.Popen | None = None
+
+# ── First-run / model download ────────────────────────────────────────────────
+# Set True by setup_ollama() when models need downloading on first launch.
+is_first_run: bool = False
+# Keyed by model name → {pct, mb, tot, text, done, error}
+model_dl_status: dict = {}

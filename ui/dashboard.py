@@ -24,6 +24,7 @@ from storage import (
 )
 from context import MARKET_CONTEXTS
 from ui.icons import PAW_COLOR, dot_widget
+import state
 
 _T = {
     "bg":     "#1A1611",
@@ -39,6 +40,7 @@ _T = {
 }
 
 _TABS = [
+    ("setup",   "✺", "Setup"),
     ("home",    "⊞", "Home"),
     ("hotkeys", "⌨", "Hotkeys"),
     ("markets", "◎", "Markets"),
@@ -49,7 +51,7 @@ _TABS = [
 ]
 
 
-def show_dashboard(root: tk.Tk):
+def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     for w in root.winfo_children():
         if isinstance(w, tk.Toplevel) and getattr(w, "_is_dashboard", False):
             w.lift(); w.focus_force(); return
@@ -58,9 +60,8 @@ def show_dashboard(root: tk.Tk):
     win = tk.Toplevel(root)
     win.withdraw()
     win._is_dashboard = True
-    win.title("AI Cursor — Settings")
+    win.overrideredirect(True)   # frameless — custom title bar handles chrome
     win.configure(bg=_T["bg"])
-    win.resizable(False, False)
     win.attributes("-topmost", True)
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
     win.geometry(f"{W}x{H}+{(sw-W)//2}+{(sh-H)//2}")
@@ -86,9 +87,20 @@ def show_dashboard(root: tk.Tk):
     x_btn = tk.Label(title_bar, text="✕", bg=_T["panel"], fg=_T["muted"],
                      font=("Segoe UI", 11), cursor="hand2", padx=16)
     x_btn.pack(side="right")
-    x_btn.bind("<Button-1>", lambda e: win.destroy())
+    def _close_dashboard(e=None):
+        win.destroy()
+        return "break"   # stop drag binding from also firing
+    x_btn.bind("<Button-1>", _close_dashboard)
     x_btn.bind("<Enter>", lambda e: x_btn.configure(fg=_T["fg"]))
     x_btn.bind("<Leave>", lambda e: x_btn.configure(fg=_T["muted"]))
+
+    # ── Drag-to-move (title bar acts as drag handle) ──────────────────────────
+    _drag = {"x": 0, "y": 0}
+    def _drag_start(e): _drag["x"] = e.x_root - win.winfo_x(); _drag["y"] = e.y_root - win.winfo_y()
+    def _drag_move(e):  win.geometry(f"+{e.x_root - _drag['x']}+{e.y_root - _drag['y']}")
+    for _w in (title_bar, title_lbl):
+        _w.bind("<Button-1>",   _drag_start)
+        _w.bind("<B1-Motion>",  _drag_move)
 
     content_area = tk.Frame(right, bg=_T["bg"])
     content_area.pack(fill="both", expand=True)
@@ -223,6 +235,209 @@ def show_dashboard(root: tk.Tk):
 
         lbl.bind("<Button-1>", _click)
         return lbl
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SETUP  (welcome + model download)
+    # ═══════════════════════════════════════════════════════════════════════════
+    setup = make_frame("setup")
+
+    # ── Canvas illustration: animated neural network ──────────────────────────
+    _canvas_w, _canvas_h = 460, 130
+    canvas = tk.Canvas(setup, bg=_T["bg"], width=_canvas_w, height=_canvas_h,
+                       highlightthickness=0)
+    canvas.pack(pady=(28, 0))
+
+    # Node positions (x, y) — 3 layers: 3 input, 5 hidden, 3 output
+    _NX = {
+        "i1": (60, 25),  "i2": (60, 65),  "i3": (60, 105),
+        "h1": (170, 13), "h2": (170, 40), "h3": (170, 65), "h4": (170, 90), "h5": (170, 117),
+        "o1": (280, 35), "o2": (280, 65), "o3": (280, 95),
+    }
+    _EDGES = [
+        ("i1","h1"),("i1","h2"),("i1","h3"),
+        ("i2","h2"),("i2","h3"),("i2","h4"),
+        ("i3","h3"),("i3","h4"),("i3","h5"),
+        ("h1","o1"),("h2","o1"),("h2","o2"),
+        ("h3","o1"),("h3","o2"),("h3","o3"),
+        ("h4","o2"),("h4","o3"),("h5","o3"),
+    ]
+    for a, b in _EDGES:
+        x1, y1 = _NX[a]; x2, y2 = _NX[b]
+        canvas.create_line(x1, y1, x2, y2, fill="#2A2620", width=1)
+
+    _node_ovals = {}
+    for name, (x, y) in _NX.items():
+        r = 7
+        canvas.create_oval(x-r-3, y-r-3, x+r+3, y+r+3, fill="#1E1A15", outline="")
+        oval = canvas.create_oval(x-r, y-r, x+r, y+r, fill="#2A2620", outline="#38332A", width=1)
+        _node_ovals[name] = oval
+
+    # Dot in the centre representing the model
+    canvas.create_oval(358, 48, 390, 80, fill="#2A2620", outline="#38332A", width=1)
+    canvas.create_oval(363, 53, 385, 75, fill="#DA7756", outline="")
+    canvas.create_text(374, 100, text="AI Cursor", fill=_T["muted"],
+                       font=("Segoe UI", 8), anchor="center")
+
+    _anim_seq  = ["i1","i2","i3","h1","h2","h3","h4","h5","o1","o2","o3"]
+    _anim_idx  = [0]
+
+    def _animate_nodes():
+        if not canvas.winfo_exists():
+            return
+        prev = _anim_seq[(_anim_idx[0] - 1) % len(_anim_seq)]
+        curr = _anim_seq[_anim_idx[0] % len(_anim_seq)]
+        canvas.itemconfig(_node_ovals[prev], fill="#2A2620", outline="#38332A")
+        canvas.itemconfig(_node_ovals[curr], fill="#DA7756", outline="#DA7756")
+        _anim_idx[0] += 1
+        canvas.after(220, _animate_nodes)
+
+    canvas.after(400, _animate_nodes)
+
+    # ── Welcome text ──────────────────────────────────────────────────────────
+    tk.Label(setup, text="Welcome to AI Cursor",
+             bg=_T["bg"], fg=_T["fg"],
+             font=("Segoe UI", 17, "bold")).pack(pady=(18, 4))
+    tk.Label(setup, text="Your local AI is getting ready.",
+             bg=_T["bg"], fg=_T["dim"],
+             font=("Segoe UI", 11)).pack()
+    tk.Label(setup, text="One-time download · stays on your machine · works offline",
+             bg=_T["bg"], fg=_T["muted"],
+             font=("Segoe UI", 9)).pack(pady=(4, 0))
+
+    tk.Frame(setup, bg=_T["border"], height=1).pack(fill="x", padx=32, pady=20)
+
+    # ── Models section ────────────────────────────────────────────────────────
+    from config import OLLAMA_VISION
+
+    _models_info = [
+        (state.model_dl_status.get("qwen2.5:14b", {}),   "qwen2.5:14b",  "~9 GB  ·  reasoning & coding"),
+        (state.model_dl_status.get("llava-phi3", {}),     "llava-phi3",   "~1.7 GB  ·  vision"),
+    ]
+
+    models_outer = tk.Frame(setup, bg=_T["bg"], padx=32)
+    models_outer.pack(fill="x")
+
+    # Header label
+    models_hdr = tk.Frame(models_outer, bg=_T["bg"])
+    models_hdr.pack(fill="x", pady=(0, 6))
+    tk.Label(models_hdr, text="MODELS", bg=_T["bg"], fg=_T["muted"],
+             font=("Segoe UI", 7, "bold")).pack(side="left")
+    _chevron_lbl = tk.Label(models_hdr, text="▾", bg=_T["bg"], fg=_T["muted"],
+                            font=("Segoe UI", 9), cursor="hand2")
+    _chevron_lbl.pack(side="right")
+
+    # Expandable detail panel
+    _detail_frame = tk.Frame(models_outer, bg=_T["panel"], padx=16, pady=12)
+    _detail_open  = [False]
+
+    def _build_detail():
+        for child in _detail_frame.winfo_children():
+            child.destroy()
+        for s, mname, desc in _models_info:
+            row = tk.Frame(_detail_frame, bg=_T["panel"])
+            row.pack(fill="x", pady=(0, 10))
+            name_row = tk.Frame(row, bg=_T["panel"])
+            name_row.pack(fill="x")
+            tk.Label(name_row, text=mname, bg=_T["panel"], fg=_T["fg"],
+                     font=("Segoe UI", 9, "bold")).pack(side="left")
+            tk.Label(name_row, text=desc, bg=_T["panel"], fg=_T["muted"],
+                     font=("Segoe UI", 8)).pack(side="left", padx=(8, 0))
+            status = s.get("text", "Waiting…")
+            done   = s.get("done", False)
+            error  = s.get("error", False)
+            status_fg = _T["accent"] if done else (_T["danger"] if error else _T["dim"])
+            tk.Label(name_row, text=status, bg=_T["panel"], fg=status_fg,
+                     font=("Segoe UI", 8)).pack(side="right")
+            # Progress bar
+            pct = s.get("pct", 0) if not done else 100
+            bar_track = tk.Frame(row, bg=_T["panel2"], height=4)
+            bar_track.pack(fill="x", pady=(4, 0))
+            bar_track.pack_propagate(False)
+            if pct > 0:
+                tk.Frame(bar_track, bg=_T["accent"] if not error else _T["danger"],
+                         height=4).place(x=0, y=0, relwidth=min(1.0, pct / 100), relheight=1)
+
+    def _toggle_models():
+        if _detail_open[0]:
+            _detail_frame.pack_forget()
+            _chevron_lbl.configure(text="▾")
+        else:
+            _build_detail()
+            _detail_frame.pack(fill="x", pady=(0, 8))
+            _chevron_lbl.configure(text="▴")
+        _detail_open[0] = not _detail_open[0]
+
+    # Hover to expand
+    _hover_job = [None]
+    def _hover_enter(e):
+        if not _detail_open[0]:
+            _hover_job[0] = models_hdr.after(150, lambda: _toggle_models() if not _detail_open[0] else None)
+    def _hover_leave(e):
+        if _hover_job[0]:
+            try: models_hdr.after_cancel(_hover_job[0])
+            except Exception: pass
+
+    for _w in (models_hdr, _chevron_lbl):
+        _w.bind("<Button-1>", lambda e: _toggle_models())
+        _w.bind("<Enter>",    _hover_enter)
+        _w.bind("<Leave>",    _hover_leave)
+
+    # ── Status summary row (always visible) ───────────────────────────────────
+    _summary_var = tk.StringVar(value="Downloading model…")
+    _summary_lbl = tk.Label(models_outer, textvariable=_summary_var,
+                            bg=_T["bg"], fg=_T["dim"], font=("Segoe UI", 9))
+    _summary_lbl.pack(anchor="w", pady=(4, 0))
+
+    # ── "Get Started" button (hidden until model is ready) ────────────────────
+    _started_btn = tk.Label(setup, text="Get Started  →",
+                            bg=_T["accent"], fg="#1A1611",
+                            font=("Segoe UI", 11, "bold"),
+                            padx=28, pady=11, cursor="hand2")
+    _started_btn.pack_forget()   # shown when download completes
+
+    def _go_home(e=None):
+        state.is_first_run = False
+        switch("home")
+    _started_btn.bind("<Button-1>", _go_home)
+
+    # ── Poll download progress every 500ms ───────────────────────────────────
+    def _poll_setup():
+        if not win.winfo_exists():
+            return
+        main_s = state.model_dl_status.get("qwen2.5:14b", {})
+        done  = main_s.get("done", False)
+        error = main_s.get("error", False)
+        text  = main_s.get("text", "Downloading…")
+
+        if done:
+            _summary_var.set("Model ready — press Alt+A to start")
+            _summary_lbl.configure(fg=_T["accent"])
+            if not _started_btn.winfo_ismapped():
+                _started_btn.pack(pady=(20, 0))
+        elif error:
+            _summary_var.set(f"Download failed: {text}")
+            _summary_lbl.configure(fg=_T["danger"])
+        else:
+            pct = main_s.get("pct", 0)
+            mb  = main_s.get("mb", 0)
+            tot = main_s.get("tot", 0)
+            if tot > 0:
+                _summary_var.set(f"{pct}%  ·  {mb} MB / {tot} MB")
+            else:
+                _summary_var.set(text or "Starting download…")
+            _summary_lbl.configure(fg=_T["dim"])
+
+        # Refresh detail if open
+        if _detail_open[0]:
+            _build_detail()
+
+        win.after(500, _poll_setup)
+
+    win.after(500, _poll_setup)
+
+    # ── Show expanded by default on first open ────────────────────────────────
+    _toggle_models()
 
     # ═══════════════════════════════════════════════════════════════════════════
     # HOME
@@ -967,6 +1182,6 @@ def show_dashboard(root: tk.Tk):
     all_btn.bind("<Button-1>", lambda e: _clear_all())
 
     # ── Show ──────────────────────────────────────────────────────────────────
-    switch("home")
+    switch(initial_tab if initial_tab in _frames else "home")
     win.deiconify()
     win.focus_force()
