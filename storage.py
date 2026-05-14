@@ -237,6 +237,26 @@ def save_compact_destination_path(path: str):
         log(f"[PREFS] compact_destination_path save failed: {e}")
 
 
+# ── Active AI model preference ───────────────────────────────────────────────
+
+def load_active_model() -> str:
+    """Return the Ollama model ID the user has selected (defaults to qwen2.5:14b)."""
+    try:
+        prefs = json.loads(PREFS_FILE.read_text(encoding="utf-8")) if PREFS_FILE.exists() else {}
+        return prefs.get("active_model", "qwen2.5:14b")
+    except Exception:
+        return "qwen2.5:14b"
+
+
+def save_active_model(model_id: str) -> None:
+    try:
+        prefs = json.loads(PREFS_FILE.read_text(encoding="utf-8")) if PREFS_FILE.exists() else {}
+        prefs["active_model"] = model_id
+        PREFS_FILE.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+    except Exception as e:
+        log(f"[PREFS] active model save failed: {e}")
+
+
 # ── RAG opt-out ──────────────────────────────────────────────────────────────
 
 def load_rag_opt_out() -> set:

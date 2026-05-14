@@ -42,6 +42,7 @@ _T = {
 _TABS = [
     ("setup",       "✺", "Setup"),
     ("home",        "⊞", "Home"),
+    ("models",      "◈", "Models"),
     ("hotkeys",     "⌨", "Hotkeys"),
     ("markets",     "◎", "Markets"),
     ("style",       "✦", "Style"),
@@ -310,9 +311,11 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     tk.Frame(setup, bg=_T["border"], height=1).pack(fill="x", padx=32, pady=16)
 
     # ── Model size picker (shown before download starts) ──────────────────────
+    from models import get_by_id as _get_model
     _MODEL_OPTS = [
-        ("qwen2.5:14b", "14B  —  Best quality",  "~9 GB   · deeper reasoning"),
-        ("qwen2.5:7b",  "7B  —  Faster download", "~4.7 GB · half the wait"),
+        ("qwen2.5:14b", "Aura 14B  —  Best quality",  "~9 GB  ·  deeper reasoning"),
+        ("qwen2.5:7b",  "Aura 7B  —  Faster download", "~4.7 GB  ·  half the wait"),
+        ("qwen2.5:3b",  "Aura 3B  —  Lightweight",    "~2 GB  ·  low RAM machines"),
     ]
     _chosen_model = [state.model_dl_status.get("_chosen") or "qwen2.5:14b"]
 
@@ -710,6 +713,204 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                  font=("Segoe UI", 9), width=14).pack(side="left")
         tk.Label(c, text=mkt, bg=_T["panel"], fg=_T["accent"],
                  font=("Segoe UI", 9)).pack(side="left")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # MODELS
+    # ═══════════════════════════════════════════════════════════════════════════
+    mdl_tab = make_frame("models")
+    md_outer, md_inner = scrollable(mdl_tab)
+    md_outer.pack(fill="both", expand=True)
+
+    def _refresh_models():
+        for w in md_inner.winfo_children():
+            w.destroy()
+
+        from models import MODELS, CATEGORY_LABELS, BADGE_COLORS, stars
+        from storage import load_active_model, save_active_model
+        from ai import download_model_bg, delete_model, is_model_pulled
+        from providers.registry import set_active_ollama_model
+
+        active_model = load_active_model()
+
+        # Helper: check if a model is downloaded
+        def _is_downloaded(mid: str) -> bool:
+            s = state.model_dl_status.get(mid, {})
+            if s.get("done"):
+                return True
+            # Ask Ollama directly
+            try:
+                import requests as _req
+                from config import OLLAMA_PORT
+                for port in [11434, OLLAMA_PORT]:
+                    r = _req.post(f"http://localhost:{port}/api/show",
+                                  json={"name": mid}, timeout=3)
+                    if r.status_code == 200:
+                        return True
+            except Exception:
+                pass
+            return False
+
+        # Group by category
+        from models import get_by_category
+        for cat in ["main", "vision", "embed"]:
+            cat_models = get_by_category(cat)
+            if not cat_models:
+                continue
+            section(md_inner, CATEGORY_LABELS[cat])
+
+            for m in cat_models:
+                mid        = m["id"]
+                downloaded = _is_downloaded(mid)
+                is_active  = (mid == active_model)
+                dl_status  = state.model_dl_status.get(mid, {})
+                downloading = bool(dl_status) and not dl_status.get("done") and not dl_status.get("error")
+
+                c = card(md_inner, pady=10)
+
+                # ── Top row: name + badge + active pill ───────────────────────
+                top = tk.Frame(c, bg=_T["panel"])
+                top.pack(fill="x")
+
+                name_lbl = tk.Label(top, text=m["name"],
+                                    bg=_T["panel"], fg=_T["fg"],
+                                    font=("Segoe UI", 10, "bold"))
+                name_lbl.pack(side="left")
+
+                if m["badge"]:
+                    badge_col = BADGE_COLORS.get(m["badge_col"], _T["panel2"])
+                    tk.Label(top, text=m["badge"],
+                             bg=badge_col, fg="#fff",
+                             font=("Segoe UI", 7, "bold"),
+                             padx=5, pady=1).pack(side="left", padx=(6, 0))
+
+                if is_active:
+                    tk.Label(top, text="● Active",
+                             bg=_T["panel"], fg=_T["accent"],
+                             font=("Segoe UI", 8, "bold")).pack(side="right")
+
+                # ── Tagline ───────────────────────────────────────────────────
+                tk.Label(c, text=m["tagline"],
+                         bg=_T["panel"], fg=_T["dim"],
+                         font=("Segoe UI", 9), anchor="w").pack(anchor="w", pady=(2, 0))
+
+                # ── Specs row ─────────────────────────────────────────────────
+                specs = (f"{m['size_gb']} GB  ·  {m['ram_gb']} GB RAM  ·  "
+                         f"{m['speed']}  ·  {stars(m['stars'])}")
+                tk.Label(c, text=specs,
+                         bg=_T["panel"], fg=_T["muted"],
+                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+
+                # ── Best for ──────────────────────────────────────────────────
+                tk.Label(c, text=f"Best for: {m['best_for']}",
+                         bg=_T["panel"], fg=_T["muted"],
+                         font=("Segoe UI", 8), anchor="w",
+                         wraplength=460, justify="left").pack(anchor="w", pady=(2, 6))
+
+                # ── Progress bar (if downloading) ─────────────────────────────
+                if downloading:
+                    pct = dl_status.get("pct", 0)
+                    bar_track = tk.Frame(c, bg=_T["panel2"], height=3)
+                    bar_track.pack(fill="x", pady=(0, 4))
+                    bar_track.pack_propagate(False)
+                    if pct > 0:
+                        tk.Frame(bar_track, bg=_T["accent"], height=3).place(
+                            x=0, y=0, relwidth=min(1.0, pct / 100), relheight=1)
+                    spd = dl_status.get("speed_mbs", 0)
+                    eta = dl_status.get("eta_secs", 0)
+                    txt = dl_status.get("text", "Downloading…")
+                    if spd > 0:
+                        mins = eta // 60
+                        secs = eta % 60
+                        eta_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+                        txt = f"{pct}%  ·  {spd} MB/s  ·  ~{eta_str} left"
+                    tk.Label(c, text=txt,
+                             bg=_T["panel"], fg=_T["dim"],
+                             font=("Segoe UI", 8)).pack(anchor="w")
+
+                # ── Action buttons ────────────────────────────────────────────
+                if cat == "main":   # only main models can be set active
+                    btn_row = tk.Frame(c, bg=_T["panel"])
+                    btn_row.pack(anchor="e", pady=(4, 0))
+
+                    if not downloaded and not downloading:
+                        def _dl(m_id=mid):
+                            import threading as _thr
+                            _thr.Thread(target=download_model_bg, args=(m_id,),
+                                        daemon=True).start()
+                            win.after(600, _refresh_models)
+                        dl_btn = tk.Label(btn_row, text="Download",
+                                          bg=_T["accent"], fg="#1A1611",
+                                          font=("Segoe UI", 8, "bold"),
+                                          padx=10, pady=4, cursor="hand2")
+                        dl_btn.pack(side="left", padx=(0, 6))
+                        dl_btn.bind("<Button-1>", lambda e, f=_dl: f())
+
+                    elif downloaded and not is_active:
+                        def _activate(m_id=mid):
+                            set_active_ollama_model(m_id)
+                            _refresh_models()
+                        act_btn = tk.Label(btn_row, text="Set Active",
+                                           bg=_T["panel2"], fg=_T["accent"],
+                                           font=("Segoe UI", 8, "bold"),
+                                           padx=10, pady=4, cursor="hand2")
+                        act_btn.pack(side="left", padx=(0, 6))
+                        act_btn.bind("<Button-1>", lambda e, f=_activate: f())
+
+                        def _del(m_id=mid):
+                            import threading as _thr
+                            _thr.Thread(target=lambda: (delete_model(m_id),
+                                                         win.after(0, _refresh_models)),
+                                        daemon=True).start()
+                        del_btn = tk.Label(btn_row, text="Delete",
+                                           bg=_T["panel2"], fg=_T["danger"],
+                                           font=("Segoe UI", 8),
+                                           padx=8, pady=4, cursor="hand2")
+                        del_btn.pack(side="left")
+                        del_btn.bind("<Button-1>", lambda e, f=_del: f())
+
+                    elif downloading:
+                        tk.Label(btn_row, text="Downloading…",
+                                 bg=_T["panel"], fg=_T["dim"],
+                                 font=("Segoe UI", 8)).pack(side="left")
+
+                elif cat in ("vision", "embed"):
+                    btn_row = tk.Frame(c, bg=_T["panel"])
+                    btn_row.pack(anchor="e", pady=(4, 0))
+                    if not downloaded and not downloading:
+                        def _dl_other(m_id=mid):
+                            import threading as _thr
+                            _thr.Thread(target=download_model_bg, args=(m_id,),
+                                        daemon=True).start()
+                            win.after(600, _refresh_models)
+                        dl_btn = tk.Label(btn_row, text="Download",
+                                          bg=_T["accent"], fg="#1A1611",
+                                          font=("Segoe UI", 8, "bold"),
+                                          padx=10, pady=4, cursor="hand2")
+                        dl_btn.pack(side="left")
+                        dl_btn.bind("<Button-1>", lambda e, f=_dl_other: f())
+                    elif downloaded:
+                        def _del_other(m_id=mid):
+                            import threading as _thr
+                            _thr.Thread(target=lambda: (delete_model(m_id),
+                                                         win.after(0, _refresh_models)),
+                                        daemon=True).start()
+                        del_btn = tk.Label(btn_row, text="Delete",
+                                           bg=_T["panel2"], fg=_T["danger"],
+                                           font=("Segoe UI", 8),
+                                           padx=8, pady=4, cursor="hand2")
+                        del_btn.pack(side="left")
+                        del_btn.bind("<Button-1>", lambda e, f=_del_other: f())
+                    elif downloading:
+                        tk.Label(btn_row, text="Downloading…",
+                                 bg=_T["panel"], fg=_T["dim"],
+                                 font=("Segoe UI", 8)).pack(side="left")
+
+        # Auto-refresh while any model is downloading
+        if any(s and not s.get("done") and not s.get("error")
+               for s in state.model_dl_status.values()):
+            win.after(1000, _refresh_models)
+
+    _refresh_models()
 
     # ═══════════════════════════════════════════════════════════════════════════
     # HOTKEYS

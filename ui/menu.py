@@ -160,6 +160,16 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
 
     saved_tone = get_pref(app_name, "tone", "professional") if app_name else "professional"
 
+    # ── Click-outside catcher — transparent full-screen window behind panel ────
+    # Catches any click outside the panel and closes it.
+    _catcher = tk.Toplevel(root)
+    _catcher.overrideredirect(True)
+    _catcher.attributes("-topmost", True)
+    _catcher.attributes("-alpha", 0.01)
+    _sw = root.winfo_screenwidth()
+    _sh = root.winfo_screenheight()
+    _catcher.geometry(f"{_sw}x{_sh}+0+0")
+
     # ── Window ────────────────────────────────────────────────────────────────
     win = tk.Toplevel(root)
     win._is_menu = True          # marker so the safety check can identify this window
@@ -167,28 +177,27 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
     win.attributes("-topmost", True)
     win.attributes("-alpha", 0.97)
     win.configure(bg=_T["border"])
+    win.lift(_catcher)           # panel sits above the catcher
 
     outer = tk.Frame(win, bg=_T["bg"])
     outer.pack(fill="both", expand=True, padx=1, pady=1)
 
     def close():
         state.menu_open = False
+        try: _catcher.destroy()
+        except Exception: pass
         try: win.destroy()
         except Exception: pass
         if on_close:
             try: on_close()
             except Exception: pass
 
-    # ── Auto-close (defined early so header/input callbacks can call it) ──────
-    _close_job = [None]
+    _catcher.bind("<Button-1>", lambda e: close())
+    _catcher.bind("<Button-3>", lambda e: close())
 
-    def _arm_autoclose():
-        _close_job[0] = win.after(8000, close)
-
+    # Kept as no-ops so existing call sites don't break
     def _cancel_autoclose(e=None):
-        if _close_job[0]:
-            win.after_cancel(_close_job[0])
-            _close_job[0] = None
+        pass
 
     # ── Header row ────────────────────────────────────────────────────────────
     hdr = tk.Frame(outer, bg=_T["bg"], padx=12, pady=9)
@@ -557,9 +566,12 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
     submit_lbl.bind("<Button-1>", _submit)
     ask_entry.bind("<Return>",    _submit)
 
-    win.bind("<Enter>",  _cancel_autoclose)
     win.bind("<Escape>", lambda e: close())
-    _arm_autoclose()
+
+    # Extend drag to the full outer frame (not just the header)
+    # Sub-widgets with their own handlers (buttons, entry) naturally block propagation
+    outer.bind("<Button-1>",  _drag_start)
+    outer.bind("<B1-Motion>", _drag_move)
 
     # ── Position — multi-monitor aware ───────────────────────────────────────
     def _reposition():

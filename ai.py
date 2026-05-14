@@ -126,7 +126,26 @@ def stop_bundled_ollama():
         state._ollama_proc = None
 
 
-# ── Model download ────────────────────────────────────────────────────────────
+# ── Model management ──────────────────────────────────────────────────────────
+
+def delete_model(model: str) -> bool:
+    """Delete a downloaded Ollama model. Returns True on success."""
+    for port in [11434, OLLAMA_PORT]:
+        try:
+            res = requests.delete(
+                f"http://localhost:{port}/api/delete",
+                json={"name": model},
+                timeout=10,
+            )
+            if res.status_code in (200, 204):
+                state.model_dl_status.pop(model, None)
+                log(f"[OLLAMA] deleted model: {model}")
+                return True
+        except Exception:
+            pass
+    log(f"[OLLAMA] delete failed for: {model}")
+    return False
+
 
 def download_model_bg(model: str):
     """Pull an Ollama model in a background thread. No Tkinter calls — writes to state only."""

@@ -14,8 +14,9 @@ _providers: list[AIProvider] = []
 def _build_defaults() -> None:
     from config import (
         NVIDIA_API_KEY, NVIDIA_BASE, NVIDIA_MODEL, NVIDIA_VISION_MODEL,
-        OLLAMA_MODEL, OLLAMA_VISION,
+        OLLAMA_VISION,
     )
+    from storage import load_active_model
     from .openai_compat import OpenAICompatibleProvider
     from .ollama import OllamaProvider
 
@@ -27,7 +28,9 @@ def _build_defaults() -> None:
             name         = "NVIDIA",
             vision_model = NVIDIA_VISION_MODEL,
         ))
-    _providers.append(OllamaProvider(OLLAMA_MODEL, OLLAMA_VISION))
+    active_model = load_active_model()
+    _providers.append(OllamaProvider(active_model, OLLAMA_VISION))
+    log(f"[REGISTRY] Ollama model: {active_model}")
 
 
 def get_providers() -> list[AIProvider]:
@@ -46,6 +49,21 @@ def remove_provider(name: str) -> None:
     """Remove all providers with the given name."""
     get_providers()
     _providers[:] = [p for p in _providers if p.name != name]
+
+
+def set_active_ollama_model(model_id: str) -> None:
+    """
+    Switch the active Ollama model live without restarting the app.
+    Removes the existing Ollama provider and adds a new one with the given model.
+    """
+    from .ollama import OllamaProvider
+    from config import OLLAMA_VISION
+    from storage import save_active_model
+    get_providers()
+    _providers[:] = [p for p in _providers if p.name != "Ollama"]
+    _providers.append(OllamaProvider(model_id, OLLAMA_VISION))
+    save_active_model(model_id)
+    log(f"[REGISTRY] switched Ollama model → {model_id}")
 
 
 def stream_with_fallback(
