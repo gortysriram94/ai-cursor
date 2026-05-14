@@ -1,72 +1,139 @@
 """
 providers/ollama.py — Ollama provider.
-Extends OpenAICompatibleProvider with:
-  - dynamic port discovery (system 11434 or bundled 11435)
-  - Ollama-specific options (num_ctx, num_thread) for CPU performance
-  - local multimodal vision via /api/generate + images field
+
+Uses Python's built-in http.client instead of requests/urllib3 for all calls.
+urllib3's call stack is 60-80 Python frames deep; http.client is ~10 frames,
+which eliminates the RecursionError that happened in PyInstaller frozen builds
+when urllib3 was used on top of an already-deep thread stack.
 """
+import http.client
 import json
-import requests
+import socket
+import urllib.parse
 
 from config import OLLAMA_PORT
 from log import log
-from .openai_compat import OpenAICompatibleProvider
+from .base import AIProvider
 
 
-class OllamaProvider(OpenAICompatibleProvider):
+class OllamaProvider(AIProvider):
+    name = "Ollama"
+
     def __init__(self, model: str, vision_model: str = ""):
-        super().__init__(
-            base_url         = f"http://localhost:{OLLAMA_PORT}/v1",
-            api_key          = "",
-            model            = model,
-            name             = "Ollama",
-            vision_model     = vision_model,
-            timeout_stream   = 120,
-            timeout_complete = 60,
-        )
-        self._active_api = f"http://localhost:{OLLAMA_PORT}"
+        self.model        = model
+        self.vision_model = vision_model
+        self._host        = "localhost"
+        self._port        = OLLAMA_PORT
+        self._api_port    = OLLAMA_PORT   # updated by is_available()
+        self._cooldown_until = 0.0
 
-    def _extra_body(self) -> dict:
-        return {"options": {"num_ctx": 2048, "num_thread": 8}}
+    # ── Port discovery ────────────────────────────────────────────────────────
 
     def is_available(self) -> bool:
         for port in [11434, OLLAMA_PORT]:
             try:
-                r = requests.get(f"http://localhost:{port}", timeout=2)
-                if r.status_code == 200:
-                    self.base_url    = f"http://localhost:{port}/v1"
-                    self._active_api = f"http://localhost:{port}"
+                conn = http.client.HTTPConnection("localhost", port, timeout=2)
+                conn.request("GET", "/")
+                resp = conn.getresponse()
+                conn.close()
+                if resp.status == 200:
+                    self._api_port = port
                     return True
             except Exception:
                 pass
         return False
 
+    # ── Text streaming ────────────────────────────────────────────────────────
+
+    def stream(self, messages, max_tokens, on_token, on_done, on_error):
+        body = json.dumps({
+            "model":      self.model,
+            "messages":   messages,
+            "max_tokens": max_tokens,
+            "stream":     True,
+            "options":    {"num_ctx": 2048, "num_thread": 8},
+        }).encode("utf-8")
+
+        try:
+            conn = http.client.HTTPConnection(
+                "localhost", self._api_port, timeout=120)
+            conn.request("POST", "/v1/chat/completions", body=body,
+                         headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+
+            if resp.status in (429, 401, 402):
+                log(f"[Ollama] HTTP {resp.status} — skipping")
+                on_error()
+                conn.close()
+                return
+
+            for raw_line in resp:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                if line.startswith(b"data: "):
+                    data = line[6:]
+                    if data == b"[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                        token = chunk["choices"][0]["delta"].get("content", "")
+                        if token:
+                            on_token(token)
+                    except Exception:
+                        pass
+            on_done()
+            conn.close()
+        except Exception as e:
+            log(f"[Ollama STREAM] {e}")
+            on_error()
+
+    # ── Blocking completion ───────────────────────────────────────────────────
+
+    def complete(self, messages, max_tokens=400, timeout=60) -> str:
+        body = json.dumps({
+            "model":      self.model,
+            "messages":   messages,
+            "max_tokens": max_tokens,
+            "options":    {"num_ctx": 2048, "num_thread": 8},
+        }).encode("utf-8")
+        try:
+            conn = http.client.HTTPConnection("localhost", self._api_port, timeout=timeout)
+            conn.request("POST", "/v1/chat/completions", body=body,
+                         headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            raw  = json.loads(resp.read().decode("utf-8"))
+            conn.close()
+            return raw["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            log(f"[Ollama COMPLETE] {e}")
+            return ""
+
+    # ── Vision streaming ──────────────────────────────────────────────────────
+
     def stream_vision(self, image_b64, messages, max_tokens, on_token, on_done, on_error):
         if not self.vision_model:
             on_error()
             return
-        # Extract prompt text from the last user message
         prompt = next(
-            (m["content"] for m in reversed(messages) if m.get("role") == "user"), ""
-        )
+            (m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
         if isinstance(prompt, list):
             prompt = " ".join(
-                p.get("text", "") for p in prompt if p.get("type") == "text"
-            )
+                p.get("text", "") for p in prompt if p.get("type") == "text")
+
+        body = json.dumps({
+            "model":  self.vision_model,
+            "prompt": prompt,
+            "images": [image_b64],
+            "stream": True,
+        }).encode("utf-8")
         try:
-            res = requests.post(
-                f"{self._active_api}/api/generate",
-                json={
-                    "model":  self.vision_model,
-                    "prompt": prompt,
-                    "images": [image_b64],
-                    "stream": True,
-                },
-                stream=True,
-                timeout=60,
-            )
-            res.raise_for_status()
-            for line in res.iter_lines():
+            conn = http.client.HTTPConnection("localhost", self._api_port, timeout=60)
+            conn.request("POST", "/api/generate", body=body,
+                         headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            for raw_line in resp:
+                line = raw_line.strip()
                 if not line:
                     continue
                 try:
@@ -79,6 +146,7 @@ class OllamaProvider(OpenAICompatibleProvider):
                 except Exception:
                     pass
             on_done()
+            conn.close()
         except Exception as e:
             log(f"[Ollama VISION] {e}")
             on_error()

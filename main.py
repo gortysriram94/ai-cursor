@@ -336,9 +336,17 @@ def main():
 
     setup_ollama(root)
 
+    # ── Pre-build provider registry ───────────────────────────────────────────
+    # Force registry initialisation NOW on the main thread so the streaming
+    # thread never has to run _build_defaults() (which does deferred imports
+    # and adds stack depth right before the urllib3 call).
+    try:
+        from providers.registry import get_providers
+        get_providers()   # triggers _build_defaults() once, here, safely
+    except Exception as _reg_err:
+        log(f"[REGISTRY] pre-build failed: {_reg_err}")
+
     # ── Enterprise connections ────────────────────────────────────────────────
-    # Load stored credentials from OS keychain and register enterprise AI/RAG
-    # providers so they're available before any AI call happens.
     try:
         from keychain import load_all_connection_creds
         from connections import load_into_registries
