@@ -260,7 +260,15 @@ def call_ai_streaming(text: str, action: str, tone: str,
         log_prompt(action, prompt)
         messages = [{"role": "user", "content": prompt}]
 
-        stream_with_fallback(messages, max_tokens, on_token, _done, _err)
+        # Launch streaming in its OWN fresh thread.
+        # _run() has already accumulated stack depth from retrieval, prompt building,
+        # etc. Spawning a new thread gives streaming a clean stack of ~5 frames
+        # before hitting urllib3, guaranteeing we never approach the recursion limit.
+        threading.Thread(
+            target=stream_with_fallback,
+            args=(messages, max_tokens, on_token, _done, _err),
+            daemon=True,
+        ).start()
 
     threading.Thread(target=_run, daemon=True).start()
 
