@@ -732,23 +732,10 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
         active_model = load_active_model()
 
-        # Helper: check if a model is downloaded
+        # Fast check: only in-memory state — no HTTP calls on the main thread.
+        # Background thread (below) queries Ollama and refreshes the tab.
         def _is_downloaded(mid: str) -> bool:
-            s = state.model_dl_status.get(mid, {})
-            if s.get("done"):
-                return True
-            # Ask Ollama directly
-            try:
-                import requests as _req
-                from config import OLLAMA_PORT
-                for port in [11434, OLLAMA_PORT]:
-                    r = _req.post(f"http://localhost:{port}/api/show",
-                                  json={"name": mid}, timeout=3)
-                    if r.status_code == 200:
-                        return True
-            except Exception:
-                pass
-            return False
+            return bool(state.model_dl_status.get(mid, {}).get("done"))
 
         # Group by category
         from models import get_by_category
@@ -905,10 +892,40 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                                  bg=_T["panel"], fg=_T["dim"],
                                  font=("Segoe UI", 8)).pack(side="left")
 
-        # Auto-refresh while any model is downloading
+        # Auto-refresh while any model is actively downloading
         if any(s and not s.get("done") and not s.get("error")
                for s in state.model_dl_status.values()):
             win.after(1000, _refresh_models)
+
+        # Background Ollama check — discovers models installed in previous sessions.
+        # Runs ONCE after the tab renders; updates state and refreshes if anything changed.
+        def _bg_ollama_check():
+            import requests as _req
+            from config import OLLAMA_PORT
+            from models import MODELS as _ALL_MODELS
+            changed = False
+            for m in _ALL_MODELS:
+                mid = m["id"]
+                if state.model_dl_status.get(mid, {}).get("done"):
+                    continue  # already known
+                for port in [11434, OLLAMA_PORT]:
+                    try:
+                        r = _req.post(f"http://localhost:{port}/api/show",
+                                      json={"name": mid}, timeout=5)
+                        if r.status_code == 200:
+                            state.model_dl_status[mid] = {
+                                "done": True, "pct": 100, "text": "Ready ✓"}
+                            changed = True
+                            break
+                    except Exception:
+                        pass
+            if changed:
+                try:
+                    win.after(0, _refresh_models)
+                except Exception:
+                    pass
+
+        threading.Thread(target=_bg_ollama_check, daemon=True).start()
 
     _refresh_models()
 
