@@ -218,21 +218,34 @@ def call_ai_streaming(text: str, action: str, tone: str,
             state.last_ai_latency_ms = int((time.monotonic() - _t0) * 1000)
             on_error()
 
-        # Retrieval phase — runs before prompt is built so docs are injected
+        # Retrieval phase — runs in its OWN thread so it cannot add frames to the
+        # streaming call stack. Inline retrieval + urllib3 + ThreadPoolExecutor
+        # combined with Ollama's urllib3 stack was pushing past Python's limit.
         active_bundle = bundle
         if active_bundle is not None and _retrieve_for_action is not None:
-            try:
-                docs = _retrieve_for_action(text, action, active_bundle,
-                                            status_cb=status_cb)
-                if docs:
-                    active_bundle.retrieved_docs = docs
-                    if on_sources:
-                        try:
-                            on_sources(docs)
-                        except Exception:
-                            pass
-            except Exception as e:
-                log(f"[RAG] retrieval skipped: {e}")
+            _docs_holder = [None]
+            _done_event  = threading.Event()
+
+            def _bg_retrieve():
+                try:
+                    _docs_holder[0] = _retrieve_for_action(
+                        text, action, active_bundle, status_cb=status_cb)
+                except Exception as e:
+                    log(f"[RAG] retrieval error: {e}")
+                finally:
+                    _done_event.set()
+
+            threading.Thread(target=_bg_retrieve, daemon=True).start()
+            _done_event.wait(timeout=10)   # max 10s; streaming proceeds regardless
+
+            docs = _docs_holder[0] or []
+            if docs:
+                active_bundle.retrieved_docs = docs
+                if on_sources:
+                    try:
+                        on_sources(docs)
+                    except Exception:
+                        pass
 
         if status_cb:
             try:
