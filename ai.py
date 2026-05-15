@@ -74,11 +74,22 @@ def is_vision_model_available() -> bool:
 
 
 def is_model_pulled() -> bool:
+    # Check prefs first — fast, no network needed, survives Ollama not being
+    # ready yet at startup. Falls back to Ollama API if prefs have no record.
+    from storage import load_downloaded_models
+    active = OLLAMA_MODEL
+    try:
+        from storage import load_active_model
+        active = load_active_model()
+    except Exception:
+        pass
+    if active in load_downloaded_models():
+        return True
     for port in [11434, OLLAMA_PORT]:
         try:
             r = requests.post(
                 f"http://localhost:{port}/api/show",
-                json={"name": OLLAMA_MODEL},
+                json={"name": active},
                 timeout=5,
             )
             if r.status_code == 200:
@@ -181,9 +192,40 @@ def download_model_bg(model: str):
                 state.model_dl_status[model] = {"text": data["status"]}
         state.model_dl_status[model] = {"done": True, "pct": 100, "text": "Ready ✓"}
         log(f"[OLLAMA] {model} download complete")
+        from storage import add_downloaded_model
+        add_downloaded_model(model)
+        _warmup_model(model)
     except Exception as e:
         state.model_dl_status[model] = {"error": True, "text": str(e)}
         log(f"[PULL FAILED] {model}: {e}")
+
+
+def _warmup_model(model: str):
+    """Load the model into RAM immediately after download.
+    Sends one silent minimal request so the first real user call is instant."""
+    import http.client as _hc
+    state.model_dl_status[model]["text"] = "Loading into memory…"
+    log(f"[OLLAMA] warming up {model}…")
+    body = json.dumps({
+        "model":      model,
+        "messages":   [{"role": "user", "content": "Hi"}],
+        "max_tokens": 1,
+        "stream":     False,
+    }).encode("utf-8")
+    for port in [OLLAMA_PORT, 11434]:
+        try:
+            conn = _hc.HTTPConnection("localhost", port, timeout=120)
+            conn.request("POST", "/v1/chat/completions", body=body,
+                         headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            resp.read()
+            conn.close()
+            state.model_dl_status[model]["text"] = "Ready ✓"
+            log(f"[OLLAMA] {model} warmed up — first response will be instant")
+            return
+        except Exception as e:
+            log(f"[OLLAMA] warmup port {port}: {e}")
+    state.model_dl_status[model]["text"] = "Ready ✓"
 
 
 # ── Text streaming (public) ───────────────────────────────────────────────────

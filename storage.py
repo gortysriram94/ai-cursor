@@ -237,6 +237,28 @@ def save_compact_destination_path(path: str):
         log(f"[PREFS] compact_destination_path save failed: {e}")
 
 
+# ── Downloaded models registry ───────────────────────────────────────────────
+
+def load_downloaded_models() -> set:
+    """Return set of model IDs that have been successfully downloaded."""
+    try:
+        prefs = json.loads(PREFS_FILE.read_text(encoding="utf-8")) if PREFS_FILE.exists() else {}
+        return set(prefs.get("downloaded_models", []))
+    except Exception:
+        return set()
+
+
+def add_downloaded_model(model_id: str) -> None:
+    try:
+        prefs = json.loads(PREFS_FILE.read_text(encoding="utf-8")) if PREFS_FILE.exists() else {}
+        models = set(prefs.get("downloaded_models", []))
+        models.add(model_id)
+        prefs["downloaded_models"] = sorted(models)
+        PREFS_FILE.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+    except Exception as e:
+        log(f"[PREFS] downloaded models save failed: {e}")
+
+
 # ── Active AI model preference ───────────────────────────────────────────────
 
 def load_active_model() -> str:
