@@ -37,14 +37,40 @@ from brain.context_bundle import ContextBundle
 
 # ── Ollama health checks ──────────────────────────────────────────────────────
 
+def _hc_get(port: int, path: str = "/", timeout: int = 2) -> int:
+    """Quick http.client GET, returns status code or 0 on error."""
+    try:
+        import http.client as _hc
+        c = _hc.HTTPConnection("localhost", port, timeout=timeout)
+        c.request("GET", path)
+        status = c.getresponse().status
+        c.close()
+        return status
+    except Exception:
+        return 0
+
+
+def _hc_post_json(port: int, path: str, body: dict, timeout: int = 3) -> int:
+    """Quick http.client POST with JSON body, returns status code or 0 on error."""
+    try:
+        import http.client as _hc
+        import json as _json
+        data = _json.dumps(body).encode("utf-8")
+        c = _hc.HTTPConnection("localhost", port, timeout=timeout)
+        c.request("POST", path, body=data,
+                  headers={"Content-Type": "application/json"})
+        status = c.getresponse().status
+        c.close()
+        return status
+    except Exception:
+        return 0
+
+
 def get_ollama_api() -> str:
     """Returns /v1 base URL of the running Ollama instance, or empty string."""
-    for port in [11434, OLLAMA_PORT]:
-        try:
-            if requests.get(f"http://localhost:{port}", timeout=2).status_code == 200:
-                return f"http://localhost:{port}/v1"
-        except Exception:
-            pass
+    for port in [OLLAMA_PORT, 11434]:
+        if _hc_get(port) == 200:
+            return f"http://localhost:{port}/v1"
     return ""
 
 
@@ -53,18 +79,10 @@ def is_ollama_running() -> bool:
 
 
 def get_vision_api() -> str:
-    """Returns API base URL of a running Ollama that has the vision model, or ''."""
-    for api in [OLLAMA_API, "http://localhost:11434"]:
-        try:
-            r = requests.post(
-                f"{api}/api/show",
-                json={"name": OLLAMA_VISION},
-                timeout=3,
-            )
-            if r.status_code == 200:
-                return api
-        except Exception:
-            pass
+    """Returns API base of a running Ollama that has the vision model, or ''."""
+    for port in [OLLAMA_PORT, 11434]:
+        if _hc_post_json(port, "/api/show", {"name": OLLAMA_VISION}) == 200:
+            return f"http://localhost:{port}"
     return ""
 
 
@@ -85,17 +103,9 @@ def is_model_pulled() -> bool:
         pass
     if active in load_downloaded_models():
         return True
-    for port in [11434, OLLAMA_PORT]:
-        try:
-            r = requests.post(
-                f"http://localhost:{port}/api/show",
-                json={"name": active},
-                timeout=5,
-            )
-            if r.status_code == 200:
-                return True
-        except Exception:
-            pass
+    for port in [OLLAMA_PORT, 11434]:
+        if _hc_post_json(port, "/api/show", {"name": active}, timeout=5) == 200:
+            return True
     return False
 
 
@@ -142,14 +152,16 @@ def stop_bundled_ollama():
 
 def delete_model(model: str) -> bool:
     """Delete a downloaded Ollama model. Returns True on success."""
-    for port in [11434, OLLAMA_PORT]:
+    import http.client as _hc
+    body = json.dumps({"name": model}).encode("utf-8")
+    for port in [OLLAMA_PORT, 11434]:
         try:
-            res = requests.delete(
-                f"http://localhost:{port}/api/delete",
-                json={"name": model},
-                timeout=10,
-            )
-            if res.status_code in (200, 204):
+            c = _hc.HTTPConnection("localhost", port, timeout=10)
+            c.request("DELETE", "/api/delete", body=body,
+                      headers={"Content-Type": "application/json"})
+            status = c.getresponse().status
+            c.close()
+            if status in (200, 204):
                 state.model_dl_status.pop(model, None)
                 log(f"[OLLAMA] deleted model: {model}")
                 return True

@@ -182,7 +182,12 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
     outer = tk.Frame(win, bg=_T["bg"])
     outer.pack(fill="both", expand=True, padx=1, pady=1)
 
+    _closing = [False]   # guard against double-close race condition
+
     def close():
+        if _closing[0]:
+            return
+        _closing[0] = True
         state.menu_open = False
         try: _catcher.destroy()
         except Exception: pass

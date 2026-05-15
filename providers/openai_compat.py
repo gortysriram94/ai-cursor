@@ -43,7 +43,7 @@ class OpenAICompatibleProvider(AIProvider):
 
     def _completions_url(self) -> str:
         """Full URL for /chat/completions. Override to add query params (e.g. api-version)."""
-        return self._completions_url()
+        return f"{self.base_url}/chat/completions"
 
     def _mark_rate_limited(self, seconds: int = 120) -> None:
         self._cooldown_until = time.time() + seconds

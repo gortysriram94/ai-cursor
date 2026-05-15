@@ -8,7 +8,7 @@ when urllib3 was used on top of an already-deep thread stack.
 """
 import http.client
 import json
-import socket
+import time
 import urllib.parse
 
 from config import OLLAMA_PORT
@@ -22,25 +22,29 @@ class OllamaProvider(AIProvider):
     def __init__(self, model: str, vision_model: str = ""):
         self.model        = model
         self.vision_model = vision_model
-        self._host        = "localhost"
-        self._port        = OLLAMA_PORT
         self._api_port    = OLLAMA_PORT   # updated by is_available()
-        self._cooldown_until = 0.0
+        self._avail_until = 0.0           # cache expiry timestamp
 
     # ── Port discovery ────────────────────────────────────────────────────────
 
     def is_available(self) -> bool:
-        for port in [11434, OLLAMA_PORT]:
+        # Cache positive result for 5 seconds to avoid an HTTP round-trip
+        # before every single AI call.
+        if time.time() < self._avail_until:
+            return True
+        for port in [OLLAMA_PORT, 11434]:
             try:
                 conn = http.client.HTTPConnection("localhost", port, timeout=2)
                 conn.request("GET", "/")
                 resp = conn.getresponse()
                 conn.close()
                 if resp.status == 200:
-                    self._api_port = port
+                    self._api_port    = port
+                    self._avail_until = time.time() + 5   # cache for 5s
                     return True
             except Exception:
                 pass
+        self._avail_until = 0.0   # force re-check on next call
         return False
 
     # ── Text streaming ────────────────────────────────────────────────────────

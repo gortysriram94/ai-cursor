@@ -23,6 +23,29 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from log import log
+
+# ── RAG prefs cache ───────────────────────────────────────────────────────────
+# load_rag_enabled() and load_rag_opt_out() read from disk on every call.
+# Cache them for 30 seconds — settings rarely change mid-session.
+_pref_cache: dict = {}
+_pref_ts: float   = 0.0
+_PREF_TTL: float  = 30.0
+
+
+def _get_rag_prefs() -> tuple[bool, set]:
+    """Return (rag_enabled, opt_out_set) from cache or disk."""
+    global _pref_cache, _pref_ts
+    if time.time() - _pref_ts > _PREF_TTL:
+        try:
+            from storage import load_rag_enabled, load_rag_opt_out
+            _pref_cache = {
+                "enabled": load_rag_enabled(),
+                "opt_out": load_rag_opt_out(),
+            }
+        except Exception:
+            _pref_cache = {"enabled": True, "opt_out": set()}
+        _pref_ts = time.time()
+    return _pref_cache.get("enabled", True), _pref_cache.get("opt_out", set())
 from rag_config import (
     should_retrieve, get_strategy,
     QUERY_PLANNER_MAX_QUERIES,
@@ -120,25 +143,17 @@ def _retrieve(text, action, bundle, status_cb, t0):
         )
         return [], event
 
-    # 1. Master switch
-    try:
-        from storage import load_rag_enabled
-        if not load_rag_enabled():
-            return _skip("master_off")
-    except Exception:
-        pass
+    # 1 & 3. Master switch + per-context opt-out (cached, single disk read per 30s)
+    rag_enabled, opt_out_set = _get_rag_prefs()
+    if not rag_enabled:
+        return _skip("master_off")
 
     # 2. Action gate
     if not should_retrieve(action, context_type, confidence):
         return _skip("action_gate")
 
-    # 3. Per-context opt-out
-    try:
-        from storage import load_rag_opt_out
-        if context_type in load_rag_opt_out():
-            return _skip("opt_out")
-    except Exception:
-        pass
+    if context_type in opt_out_set:
+        return _skip("opt_out")
 
     # 4. Privacy check
     if not is_safe_to_retrieve(text, entities):

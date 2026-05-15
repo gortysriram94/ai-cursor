@@ -898,30 +898,53 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
             win.after(1000, _refresh_models)
 
         # Background Ollama check — discovers models installed in previous sessions.
-        # Runs ONCE after the tab renders; updates state and refreshes if anything changed.
+        # Parallel checks (one thread per unknown model) with short timeout.
+        # Guards against the dashboard being closed before the thread finishes.
         def _bg_ollama_check():
-            import requests as _req
+            import http.client as _hc
+            import json as _json
+            from concurrent.futures import ThreadPoolExecutor, as_completed
             from config import OLLAMA_PORT
             from models import MODELS as _ALL_MODELS
+
+            unknown = [m["id"] for m in _ALL_MODELS
+                       if not state.model_dl_status.get(m["id"], {}).get("done")]
+            if not unknown:
+                return
+
             changed = False
-            for m in _ALL_MODELS:
-                mid = m["id"]
-                if state.model_dl_status.get(mid, {}).get("done"):
-                    continue  # already known
-                for port in [11434, OLLAMA_PORT]:
+
+            def _check_one(mid: str) -> tuple[str, bool]:
+                for port in [OLLAMA_PORT, 11434]:
                     try:
-                        r = _req.post(f"http://localhost:{port}/api/show",
-                                      json={"name": mid}, timeout=5)
-                        if r.status_code == 200:
+                        body = _json.dumps({"name": mid}).encode()
+                        conn = _hc.HTTPConnection("localhost", port, timeout=3)
+                        conn.request("POST", "/api/show", body=body,
+                                     headers={"Content-Type": "application/json"})
+                        resp = conn.getresponse()
+                        conn.close()
+                        if resp.status == 200:
+                            return mid, True
+                    except Exception:
+                        pass
+                return mid, False
+
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                futures = {pool.submit(_check_one, mid): mid for mid in unknown}
+                for f in as_completed(futures, timeout=8):
+                    try:
+                        mid, found = f.result()
+                        if found:
                             state.model_dl_status[mid] = {
                                 "done": True, "pct": 100, "text": "Ready ✓"}
                             changed = True
-                            break
                     except Exception:
                         pass
+
             if changed:
                 try:
-                    win.after(0, _refresh_models)
+                    if win.winfo_exists():
+                        win.after(0, _refresh_models)
                 except Exception:
                     pass
 
