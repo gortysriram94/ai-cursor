@@ -225,6 +225,16 @@ def download_model_bg(model: str):
     cancel = threading.Event()
     _cancel_flags[model] = cancel
     state.model_dl_status[model] = {"text": "Connecting…"}
+
+    # Discover the port Ollama is actually listening on — may be 11435 (bundled)
+    # or 11434 (system install). get_ollama_api() checks both.
+    api_base = get_ollama_api()
+    if not api_base:
+        state.model_dl_status[model] = {"error": True, "text": "Ollama not running"}
+        log(f"[PULL FAILED] {model}: Ollama not reachable on any port")
+        return
+    pull_url = api_base.rsplit("/v1", 1)[0] + "/api/pull"
+
     try:
         import tray
         tray.set_state("downloading", f"AI Cursor — Downloading {model}…")
@@ -232,7 +242,7 @@ def download_model_bg(model: str):
         pass
     t_start = time.time()
     try:
-        res = requests.post(f"{OLLAMA_API}/api/pull",
+        res = requests.post(pull_url,
                             json={"name": model}, stream=True, timeout=None)
         for line in res.iter_lines():
             if cancel.is_set():
