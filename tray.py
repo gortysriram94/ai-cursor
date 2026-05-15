@@ -42,7 +42,7 @@ def _render(state: str, size: int = 64) -> "Image.Image":
         if state == "loading":
             # Grey/desaturated — app is still starting
             from PIL import ImageEnhance
-            img = ImageEnhance.Saturation(base).enhance(0)
+            img = ImageEnhance.Color(base).enhance(0)       # remove colour
             img = ImageEnhance.Brightness(img).enhance(0.45)
         elif state == "downloading":
             # Slightly dimmed — model is downloading
