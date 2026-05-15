@@ -1,17 +1,18 @@
 """
 tray.py — system tray icon and notifications.
 
-Provides immediate visual feedback that the app is running.
-States: loading → downloading → ready
+Uses the same flame icon as the mouse cursor.
+Icons are pre-rendered on the main thread at startup to avoid
+cross-thread PIL/tkinter issues.
 
-Works on Windows (win32 backend) and macOS (AppKit backend).
-Gracefully disabled if pystray is not installed.
+States: loading (grey flame) → downloading (dimmed flame) → ready (full flame)
 """
 import threading
 from log import log
 
-_icon = None
-_AVAILABLE = False
+_icon       = None
+_AVAILABLE  = False
+_img_cache: dict = {}   # state -> PIL Image, pre-rendered on main thread
 
 try:
     import pystray
@@ -21,33 +22,52 @@ except ImportError:
     pass
 
 
-# ── Icon image builder ────────────────────────────────────────────────────────
+# ── Icon rendering ────────────────────────────────────────────────────────────
 
-def _make_image(state: str, size: int = 64) -> "Image.Image":
+def _render(state: str, size: int = 64) -> "Image.Image":
     """
-    Build the tray icon for the given state.
-    Tries to use the app's flame icon; falls back to a clean geometric icon.
+    Render the tray icon for the given state.
+    Uses the same flame SVG as the mouse cursor via ui/icons._render_flame().
+    Must be called on the main thread (or after pre-render).
     """
+    # Return cached image if available
+    key = f"{state}:{size}"
+    if key in _img_cache:
+        return _img_cache[key]
+
     try:
         from ui.icons import _render_flame
-        img = _render_flame(size, "#1A1611")
+        base = _render_flame(size, "#1A1611").convert("RGB")
+
         if state == "loading":
-            # Desaturate for "not ready yet" appearance
-            r, g, b, a = img.split()
-            gray = r.point(lambda x: int(x * 0.35))
-            g2   = g.point(lambda x: int(x * 0.35))
-            b2   = b.point(lambda x: int(x * 0.35))
-            img = Image.merge("RGBA", (gray, g2, b2, a))
+            # Grey/desaturated — app is still starting
+            from PIL import ImageEnhance
+            img = ImageEnhance.Saturation(base).enhance(0)
+            img = ImageEnhance.Brightness(img).enhance(0.45)
+        elif state == "downloading":
+            # Slightly dimmed — model is downloading
+            from PIL import ImageEnhance
+            img = ImageEnhance.Brightness(base).enhance(0.75)
+        else:
+            # Full-brightness flame — ready
+            img = base
+
+        # pystray needs RGBA on some platforms
+        img = img.convert("RGBA")
+        _img_cache[key] = img
         return img
-    except Exception:
-        return _fallback_image(state, size)
+
+    except Exception as e:
+        log(f"[TRAY] flame render failed ({state}): {e} — using fallback")
+        img = _fallback(state, size)
+        _img_cache[key] = img
+        return img
 
 
-def _fallback_image(state: str, size: int = 64) -> "Image.Image":
-    """Simple geometric icon used when flame renderer is unavailable."""
-    from PIL import Image, ImageDraw
+def _fallback(state: str, size: int = 64) -> "Image.Image":
+    """Simple colored circle used when flame renderer is unavailable."""
     colors = {
-        "loading":     ("#3A3530", "#5A5550"),
+        "loading":     ("#2A2520", "#4A4540"),
         "downloading": ("#1A1611", "#C86040"),
         "ready":       ("#1A1611", "#DA7756"),
     }
@@ -57,21 +77,27 @@ def _fallback_image(state: str, size: int = 64) -> "Image.Image":
     draw.ellipse([0, 0, size - 1, size - 1], fill=bg)
     pad = size // 5
     draw.ellipse([pad, pad, size - pad - 1, size - pad - 1], fill=fg)
-    if state == "ready":
-        # Small highlight dot
-        hp = size // 3
-        hs = size // 6
-        draw.ellipse([hp, hp, hp + hs, hp + hs], fill="#F0A482")
     return img
+
+
+def preload_icons(size: int = 64) -> None:
+    """
+    Pre-render all icon states on the main thread.
+    Call this once after Tkinter root is created, before start_tray().
+    """
+    if not _AVAILABLE:
+        return
+    for state in ("loading", "downloading", "ready"):
+        _render(state, size)
+    log("[TRAY] icons pre-rendered")
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def start_tray(open_dashboard_fn=None, quit_fn=None) -> None:
     """
-    Start the system tray icon. Returns immediately; icon runs in a daemon thread.
-    open_dashboard_fn: called (on Tk main thread via root.after) when user clicks icon
-    quit_fn: called when user selects Quit from tray menu
+    Start the system tray icon. Returns immediately — icon runs in a daemon thread.
+    Call preload_icons() on the main thread before calling this.
     """
     global _icon
     if not _AVAILABLE:
@@ -100,10 +126,10 @@ def start_tray(open_dashboard_fn=None, quit_fn=None) -> None:
     )
 
     _icon = pystray.Icon(
-        name    = "AIcursor",
-        icon    = _make_image("loading"),
-        title   = "AI Cursor — Starting…",
-        menu    = menu,
+        name  = "AIcursor",
+        icon  = _render("loading"),
+        title = "AI Cursor — Starting…",
+        menu  = menu,
     )
 
     def _run():
@@ -117,10 +143,7 @@ def start_tray(open_dashboard_fn=None, quit_fn=None) -> None:
 
 
 def set_state(state: str, tooltip: str = "") -> None:
-    """
-    Update the tray icon appearance.
-    state: "loading" | "downloading" | "ready"
-    """
+    """Update tray icon. state: 'loading' | 'downloading' | 'ready'"""
     global _icon
     if not _AVAILABLE or _icon is None:
         return
@@ -130,18 +153,14 @@ def set_state(state: str, tooltip: str = "") -> None:
         "ready":       "AI Cursor — Ready  (Alt+A)",
     }
     try:
-        _icon.icon  = _make_image(state)
+        _icon.icon  = _render(state)
         _icon.title = tooltip or labels.get(state, "AI Cursor")
     except Exception as e:
         log(f"[TRAY] set_state: {e}")
 
 
 def notify(title: str, message: str) -> None:
-    """
-    Show a notification balloon from the tray icon.
-    On Windows: balloon tooltip from the tray.
-    On macOS: Notification Center entry.
-    """
+    """Show a notification balloon / system notification."""
     global _icon
     if not _AVAILABLE or _icon is None:
         return

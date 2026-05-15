@@ -336,6 +336,7 @@ def main():
 
     # ── System tray icon — appears immediately so users know the app is running ─
     import tray as _tray
+    _tray.preload_icons()   # render flame icons on main thread before tray thread starts
     _tray.start_tray(
         open_dashboard_fn = lambda: root.after(0, lambda: _show_dashboard(root)),
         quit_fn           = lambda: root.after(0, root.quit),
