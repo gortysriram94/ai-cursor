@@ -359,6 +359,19 @@ def start_auto_download_queue() -> None:
 
         from models import MODELS
         from storage import load_downloaded_models
+
+        # Bundled models first — if the installer didn't pre-install them,
+        # download them now before anything else (they're small, ~400 MB).
+        for m in [m for m in MODELS if m.get("bundled")]:
+            mid = m["id"]
+            if state.model_dl_status.get(mid, {}).get("done"):
+                continue
+            if mid in load_downloaded_models():
+                state.model_dl_status[mid] = {"done": True, "pct": 100, "text": "Ready ✓"}
+                continue
+            log(f"[QUEUE] bundled model {mid} not pre-installed — downloading now")
+            download_model_bg(mid)
+
         queue = sorted(
             [m for m in MODELS if not m.get("bundled")],
             key=lambda m: m.get("size_gb", 0),
