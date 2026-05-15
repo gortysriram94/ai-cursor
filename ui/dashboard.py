@@ -1152,111 +1152,179 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     _proc_cards: dict = {}   # entry_id → {output_lbl, status_dot, dur_lbl}
 
     # ── Node graph constants ──────────────────────────────────────────────────
-    _NC_W, _NC_H = 660, 134          # canvas size
-    _NW, _NH     = 70, 100           # node width / height
-    _NX0         = 16                # left margin
-    _NGAP        = 23                # gap between nodes
-    _NSTEP       = _NW + _NGAP      # 93px per node slot
-    _NY          = 14                # node top y
-    _WIRE_Y      = _NY + _NH // 2   # wire centre y = 64
+    _NC_W, _NC_H = 660, 158          # canvas size
+    _NW, _NH     = 76, 112           # node width / height
+    _NBDR        = 4                 # left accent border width
+    _NX0         = 10                # left margin
+    _NGAP        = 18                # gap between nodes (wire length)
+    _NSTEP       = _NW + _NGAP      # 94px per slot
+    _NY          = 16                # node top y
+    _WIRE_Y      = _NY + _NH // 2   # wire centre y
 
-    _NODE_FILL    = {"done":"#1A2820","running":"#1E1A15","error":"#251515",
-                     "skipped":"#1A1611","pending":"#1E1A15"}
-    _NODE_OUTLINE = {"done":"#4a8c5c","running":"#b89440","error":"#E05C5C",
-                     "skipped":"#2A2520","pending":"#38332A"}
-    _NODE_TXT     = {"done":"#9DE8B0","running":"#F0D070","error":"#FF9090",
-                     "skipped":"#4A4540","pending":"#4A4540"}
-    _STATUS_LABELS = {"done":"✓ Done","running":"● Running","error":"✗ Error",
-                      "skipped":"— Skipped","pending":"○ Pending"}
+    _NODE_BG      = {"done":"#182118","running":"#1C1A14","error":"#221414",
+                     "skipped":"#191614","pending":"#1C1A14"}
+    _NODE_ACCENT  = {"done":"#4a8c5c","running":"#b89440","error":"#E05C5C",
+                     "skipped":"#333030","pending":"#383430"}
+    _NODE_TXT     = {"done":"#7DCFA0","running":"#E8C060","error":"#FF8080",
+                     "skipped":"#484040","pending":"#484040"}
+    _BADGE_BG     = {"done":"#1F3828","running":"#2A2410","error":"#2A1414",
+                     "skipped":"#201C1C","pending":"#201C1C"}
+    _STATUS_LABELS = {"done":"✓  Done","running":"●  Running","error":"✗  Error",
+                      "skipped":"—  Skipped","pending":"○  Pending"}
     _STATUS_COLORS = {"done":"#4a8c5c","error":"#E05C5C","running":"#b89440"}
     _ACTION_LABELS = {
         "summarize":"Summarize","reply":"Reply","followup":"Follow Up",
         "explain":"Explain","fix":"Fix","rephrase":"Rephrase",
         "form":"Form Fill","custom":"Custom",
     }
+    _STEP_NUMS = ["① ","② ","③ ","④ ","⑤ ","⑥ ","⑦ "]
 
     def _node_cx(i): return _NX0 + i * _NSTEP + _NW // 2
     def _node_nx(i): return _NX0 + i * _NSTEP
 
-    def _draw_proc_canvas(canvas: tk.Canvas, steps: list, anim_t: list,
+    def _draw_proc_canvas(canvas: tk.Canvas, steps: list,
                           detail_frame: tk.Frame, detail_shown: list):
-        """Draw static node graph. Returns list of node tag names."""
+        """Draw static node graph with proper labels and borders."""
         canvas.delete("all")
+
         for i, step in enumerate(steps):
             cx   = _node_cx(i)
             nx   = _node_nx(i)
-            fill = _NODE_FILL.get(step["status"], "#1E1A15")
-            outl = _NODE_OUTLINE.get(step["status"], "#38332A")
-            txt  = _NODE_TXT.get(step["status"], _T["muted"])
             tag  = f"n{i}"
+            acc  = _NODE_ACCENT.get(step["status"], "#383430")
+            bg   = _NODE_BG.get(step["status"], "#1C1A14")
+            txt  = _NODE_TXT.get(step["status"], _T["muted"])
+            bbg  = _BADGE_BG.get(step["status"], "#201C1C")
+            body_x = nx + _NBDR  # body starts after left border
 
-            # Node rectangle
-            canvas.create_rectangle(nx, _NY, nx + _NW, _NY + _NH,
-                                     fill=fill, outline=outl, width=1, tags=(tag, "node"))
-            # Icon
-            canvas.create_text(cx, _NY + 18, text=step["icon"],
-                                fill=outl, font=("Segoe UI", 13), tags=(tag, "node"))
-            # Name
-            canvas.create_text(cx, _NY + 38, text=step["name"],
-                                fill=_T["fg"], font=("Segoe UI", 7, "bold"),
-                                tags=(tag, "node"))
-            # Status
-            canvas.create_text(cx, _NY + 56,
+            # ── Left accent border ─────────────────────────────────────────────
+            canvas.create_rectangle(nx, _NY, nx + _NBDR, _NY + _NH,
+                                     fill=acc, outline="", tags=(tag,))
+            # ── Node body ─────────────────────────────────────────────────────
+            canvas.create_rectangle(body_x, _NY, nx + _NW, _NY + _NH,
+                                     fill=bg, outline=acc, width=1,
+                                     tags=(tag,))
+
+            # ── Step number + name ────────────────────────────────────────────
+            num = _STEP_NUMS[i] if i < len(_STEP_NUMS) else f"{i+1}. "
+            canvas.create_text(cx + 2, _NY + 18,
+                                text=num + step["name"],
+                                fill=_T["fg"], font=("Segoe UI", 8, "bold"),
+                                width=_NW - 10, tags=(tag,))
+
+            # ── Divider line ──────────────────────────────────────────────────
+            canvas.create_line(body_x + 4, _NY + 31, nx + _NW - 4, _NY + 31,
+                                fill=acc, width=1, tags=(tag,))
+
+            # ── Status badge ──────────────────────────────────────────────────
+            bx1 = cx - 30; bx2 = cx + 30
+            by1 = _NY + 39; by2 = _NY + 54
+            canvas.create_rectangle(bx1, by1, bx2, by2,
+                                     fill=bbg, outline=acc, width=1, tags=(tag,))
+            canvas.create_text(cx, (by1 + by2) // 2,
                                 text=_STATUS_LABELS.get(step["status"], step["status"]),
-                                fill=txt, font=("Segoe UI", 6), tags=(tag, "node"))
-            # Duration
+                                fill=txt, font=("Segoe UI", 7, "bold"),
+                                tags=(tag,))
+
+            # ── Duration ──────────────────────────────────────────────────────
             dur_ms = step.get("duration_ms", 0)
-            if dur_ms > 0:
-                dur_txt = (f"{dur_ms}ms" if dur_ms < 1000
-                           else f"{dur_ms/1000:.1f}s")
-                canvas.create_text(cx, _NY + 70, text=dur_txt,
-                                    fill=_T["muted"], font=("Segoe UI", 6),
-                                    tags=(tag, "node"))
-            # Wire to next node
+            dur_str = (f"{dur_ms} ms" if dur_ms < 1000 else f"{dur_ms/1000:.2f} s") if dur_ms > 0 else "—"
+            canvas.create_text(cx, _NY + 70,
+                                text=dur_str,
+                                fill=acc if dur_ms > 0 else _T["muted"],
+                                font=("Segoe UI", 8, "bold"), tags=(tag,))
+
+            # ── "click for details" hint ──────────────────────────────────────
+            canvas.create_text(cx, _NY + 88,
+                                text="click for logs",
+                                fill="#3A3530", font=("Segoe UI", 6),
+                                tags=(tag,))
+
+            # ── Wire → next node ──────────────────────────────────────────────
             if i < len(steps) - 1:
                 wx1 = nx + _NW
                 wx2 = wx1 + _NGAP
-                wc = _NODE_OUTLINE.get(step["status"], "#2A2520")
-                canvas.create_line(wx1, _WIRE_Y, wx2, _WIRE_Y,
+                wc  = acc if step["status"] in ("done", "running") else "#2A2520"
+                # Wire line
+                canvas.create_line(wx1, _WIRE_Y, wx2 - 4, _WIRE_Y,
                                     fill=wc, width=2, tags=f"wire{i}")
+                # Arrow head
+                canvas.create_polygon(wx2 - 4, _WIRE_Y - 4,
+                                       wx2 + 2, _WIRE_Y,
+                                       wx2 - 4, _WIRE_Y + 4,
+                                       fill=wc, outline="", tags=f"wire{i}")
 
-            # Click → toggle detail panel
+            # ── Hover + click bindings ────────────────────────────────────────
+            canvas.tag_bind(tag, "<Enter>",
+                             lambda e, t=tag, b=bg: canvas.itemconfig(t, fill="#222018"))
+            canvas.tag_bind(tag, "<Leave>",
+                             lambda e, t=tag, b=bg: canvas.itemconfig(t, fill=b))
+
             def _on_node_click(e, idx=i, st=step):
                 if detail_shown[0] == idx:
                     detail_frame.pack_forget()
                     detail_shown[0] = None
-                else:
-                    for w in detail_frame.winfo_children():
-                        w.destroy()
-                    hdr_txt = f"{st['icon']}  {st['name']}  ·  {_STATUS_LABELS.get(st['status'], st['status'])}"
-                    if st.get("duration_ms", 0) > 0:
-                        dur = st["duration_ms"]
-                        hdr_txt += f"  ·  {dur}ms" if dur < 1000 else f"  ·  {dur/1000:.1f}s"
-                    tk.Label(detail_frame, text=hdr_txt,
-                             bg=_T["panel2"], fg=_NODE_TXT.get(st["status"], _T["fg"]),
-                             font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 6))
-                    det = st.get("detail", {})
-                    if det:
-                        for k, v in det.items():
-                            row = tk.Frame(detail_frame, bg=_T["panel2"])
-                            row.pack(fill="x", pady=1)
-                            tk.Label(row, text=k + ":", bg=_T["panel2"], fg=_T["muted"],
-                                     font=("Segoe UI", 8), width=16, anchor="w").pack(side="left")
-                            tk.Label(row, text=str(v), bg=_T["panel2"], fg=_T["fg"],
-                                     font=("Segoe UI", 8), anchor="w",
-                                     wraplength=420, justify="left").pack(side="left")
-                    else:
-                        tk.Label(detail_frame, text="No detail available yet.",
+                    return
+
+                for w in detail_frame.winfo_children():
+                    w.destroy()
+
+                step_acc = _NODE_ACCENT.get(st["status"], "#383430")
+                step_txt = _NODE_TXT.get(st["status"], _T["fg"])
+                dur = st.get("duration_ms", 0)
+                dur_str = (f"{dur} ms" if dur < 1000 else f"{dur/1000:.2f} s") if dur else "—"
+
+                # ── Log header ─────────────────────────────────────────────────
+                hdr = tk.Frame(detail_frame, bg=_T["panel2"])
+                hdr.pack(fill="x", pady=(0, 0))
+
+                step_num = _STEP_NUMS[idx] if idx < len(_STEP_NUMS) else f"{idx+1}. "
+                tk.Label(hdr, text=f" {step_num}{st['name']}",
+                         bg=_T["panel2"], fg=_T["fg"],
+                         font=("Segoe UI", 10, "bold")).pack(side="left", pady=8, padx=(4, 0))
+
+                right_hdr = tk.Frame(hdr, bg=_T["panel2"])
+                right_hdr.pack(side="right", padx=8)
+                tk.Label(right_hdr,
+                         text=_STATUS_LABELS.get(st["status"], st["status"]),
+                         bg=_T["panel2"], fg=step_txt,
+                         font=("Segoe UI", 8, "bold")).pack(anchor="e")
+                tk.Label(right_hdr, text=dur_str,
+                         bg=_T["panel2"], fg=step_acc,
+                         font=("Segoe UI", 8)).pack(anchor="e")
+
+                # ── Divider ────────────────────────────────────────────────────
+                tk.Frame(detail_frame, bg=step_acc, height=1).pack(fill="x")
+
+                # ── Log body ───────────────────────────────────────────────────
+                body = tk.Frame(detail_frame, bg=_T["panel2"], padx=12, pady=10)
+                body.pack(fill="x")
+
+                det = st.get("detail", {})
+                if det:
+                    for k, v in det.items():
+                        row = tk.Frame(body, bg=_T["panel2"])
+                        row.pack(fill="x", pady=2)
+                        tk.Label(row, text=k,
                                  bg=_T["panel2"], fg=_T["muted"],
-                                 font=("Segoe UI", 8, "italic")).pack(anchor="w")
-                    if not detail_frame.winfo_ismapped():
-                        detail_frame.pack(fill="x", padx=2, pady=(4, 0))
-                    detail_shown[0] = idx
+                                 font=("Segoe UI", 8),
+                                 width=20, anchor="w").pack(side="left")
+                        tk.Label(row, text=str(v),
+                                 bg=_T["panel2"], fg=_T["fg"],
+                                 font=("JetBrains Mono", 8),
+                                 anchor="w", wraplength=380,
+                                 justify="left").pack(side="left", fill="x", expand=True)
+                else:
+                    tk.Label(body,
+                             text="No log data captured for this step yet.",
+                             bg=_T["panel2"], fg=_T["muted"],
+                             font=("Segoe UI", 8, "italic")).pack(anchor="w")
+
+                if not detail_frame.winfo_ismapped():
+                    detail_frame.pack(fill="x", pady=(4, 0))
+                detail_shown[0] = idx
 
             canvas.tag_bind(tag, "<Button-1>", _on_node_click)
-            canvas.tag_bind(tag, "<Enter>",
-                             lambda e, t=tag: canvas.itemconfig(t, fill=_NODE_FILL.get(
-                                 steps[int(t[1:])]["status"], "#1E1A15")))
 
     def _start_canvas_anim(canvas: tk.Canvas, steps: list):
         """Animate dots along wires. Runs until canvas is destroyed."""
@@ -1273,23 +1341,23 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
             canvas.delete("pulse_border")
 
             for i, step in enumerate(steps):
-                # Pulsing border for running node
+                # Pulsing left border accent for running node
                 if step["status"] == "running":
-                    alpha = abs(pulse[0] - 15) / 15.0   # 0→1→0
-                    r = int(0xb8 * alpha + 0x38 * (1 - alpha))
-                    g = int(0x94 * alpha + 0x33 * (1 - alpha))
-                    b = int(0x40 * alpha + 0x2A * (1 - alpha))
+                    alpha = abs(pulse[0] - 15) / 15.0
+                    r = int(0xb8 * alpha + 0x26 * (1 - alpha))
+                    g = int(0x94 * alpha + 0x22 * (1 - alpha))
+                    b = int(0x40 * alpha + 0x10 * (1 - alpha))
                     pc = f"#{r:02x}{g:02x}{b:02x}"
                     nx = _node_nx(i)
-                    canvas.create_rectangle(nx, _NY, nx + _NW, _NY + _NH,
-                                             fill="", outline=pc, width=2,
+                    canvas.create_rectangle(nx, _NY, nx + _NBDR, _NY + _NH,
+                                             fill=pc, outline="",
                                              tags="pulse_border")
 
                 # Moving dot along wire
                 if i < len(steps) - 1 and step["status"] in ("done", "running"):
                     wx1 = _node_nx(i) + _NW
-                    wx2 = wx1 + _NGAP
-                    frac = (anim_t[0] % 24) / 24.0
+                    wx2 = wx1 + _NGAP - 6   # stop before arrowhead
+                    frac = (anim_t[0] % 18) / 18.0
                     dx = wx1 + frac * (wx2 - wx1)
                     dc = "#4a8c5c" if step["status"] == "done" else "#b89440"
                     canvas.create_oval(dx - 3, _WIRE_Y - 3, dx + 3, _WIRE_Y + 3,
@@ -1390,7 +1458,7 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                     cv = tk.Canvas(expand_frame, bg=_T["bg"], width=_NC_W, height=_NC_H,
                                    highlightthickness=0)
                     cv.pack(padx=0, pady=(6, 0))
-                    _draw_proc_canvas(cv, steps, [0], detail_frame, detail_shown)
+                    _draw_proc_canvas(cv, steps, detail_frame, detail_shown)
                     _start_canvas_anim(cv, steps)
             expand_open[0] = not expand_open[0]
 
