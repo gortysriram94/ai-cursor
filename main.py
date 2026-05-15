@@ -431,12 +431,17 @@ def main():
     from crash import install_crash_handlers
     install_crash_handlers(root, platform_instance=plat)
 
-    # ── First-run: open dashboard to welcome/setup screen ────────────────────
-    if state.is_first_run:
+    # ── First-install: open dashboard automatically ───────────────────────────
+    from storage import is_first_install, mark_installed
+    if is_first_install():
+        mark_installed()
+        from ui.dashboard import show_dashboard
+        root.after(800, lambda: show_dashboard(root, initial_tab="setup"))
+    elif state.is_first_run:
         from ui.dashboard import show_dashboard
         root.after(800, lambda: show_dashboard(root, initial_tab="setup"))
     else:
-        # Model already installed — mark tray as ready immediately
+        # Already set up — mark tray as ready immediately
         _tray.set_state("ready")
         _tray.notify("AI Cursor is ready", "Press Alt+A to start")
 

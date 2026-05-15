@@ -113,6 +113,33 @@ def _synthesize_style_profile():
         log(f"[STYLE] Synthesis failed: {e}")
 
 
+# ── First-install flag ────────────────────────────────────────────────────────
+
+def is_first_install() -> bool:
+    """True if this is the first time the app has ever launched on this machine."""
+    try:
+        from config import PREFS_FILE
+        if not PREFS_FILE.exists():
+            return True
+        data = json.loads(PREFS_FILE.read_text(encoding="utf-8"))
+        return not data.get("__installed__", False)
+    except Exception:
+        return True
+
+
+def mark_installed() -> None:
+    """Call once after first launch to suppress the welcome screen on future starts."""
+    try:
+        from config import PREFS_FILE
+        data = {}
+        if PREFS_FILE.exists():
+            data = json.loads(PREFS_FILE.read_text(encoding="utf-8"))
+        data["__installed__"] = True
+        PREFS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
 # ── Preferences (per-app tone memory) ────────────────────────────────────────
 
 def load_prefs() -> dict:
