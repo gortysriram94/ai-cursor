@@ -302,18 +302,29 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
         _upd_btn.bind("<Button-1>", _start_upd_dl)
 
+    _su_upd_shown = [False]
+
+    def _su_poll_update():
+        if not win.winfo_exists() or _su_upd_shown[0]:
+            return
+        if state.pending_update:
+            _su_upd_shown[0] = True
+            _show_su_update_banner(state.pending_update)
+        else:
+            win.after(5000, _su_poll_update)
+
     def _su_check_update():
         try:
-            # Use cached result from startup check; fall back to a fresh API call
-            info = state.pending_update
-            if info is None:
+            if state.pending_update is None:
                 from updater import check_for_update
                 info = check_for_update()
-            if info and win.winfo_exists():
-                win.after(0, lambda: _show_su_update_banner(info))
+                if info:
+                    state.pending_update = info
         except Exception:
             pass
+
     threading.Thread(target=_su_check_update, daemon=True).start()
+    win.after(500, _su_poll_update)
 
     # ── AI Engine ─────────────────────────────────────────────────────────────
     section(su_inner, "AI Engine", top=14)
@@ -833,19 +844,29 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
         _dl_btn.bind("<Button-1>", _start_dl)
 
+    _home_upd_shown = [False]
+
+    def _home_poll_update():
+        if not win.winfo_exists() or _home_upd_shown[0]:
+            return
+        if state.pending_update:
+            _home_upd_shown[0] = True
+            _show_update_banner(state.pending_update)
+        else:
+            win.after(5000, _home_poll_update)
+
     def _check_update_bg():
         try:
-            # Use cached result from startup check; fall back to a fresh API call
-            info = state.pending_update
-            if info is None:
+            if state.pending_update is None:
                 from updater import check_for_update
                 info = check_for_update()
-            if info and win.winfo_exists():
-                win.after(0, lambda: _show_update_banner(info))
+                if info:
+                    state.pending_update = info
         except Exception:
             pass
 
     threading.Thread(target=_check_update_bg, daemon=True).start()
+    win.after(500, _home_poll_update)
 
     # ── Hero illustration ─────────────────────────────────────────────────────
     import math as _math
