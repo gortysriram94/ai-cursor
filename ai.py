@@ -109,8 +109,9 @@ def start_bundled_ollama() -> bool:
 
     OLLAMA_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env["OLLAMA_HOST"]   = f"127.0.0.1:{OLLAMA_PORT}"
-    env["OLLAMA_MODELS"] = str(OLLAMA_MODELS_DIR)
+    env["OLLAMA_HOST"]       = f"127.0.0.1:{OLLAMA_PORT}"
+    env["OLLAMA_MODELS"]     = str(OLLAMA_MODELS_DIR)
+    env["OLLAMA_KEEP_ALIVE"] = "-1"   # keep model in RAM indefinitely
 
     extra = {}
     if _platform.system() == "Windows":

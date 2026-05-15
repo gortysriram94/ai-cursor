@@ -15,11 +15,19 @@ def _build_defaults() -> None:
     from config import (
         NVIDIA_API_KEY, NVIDIA_BASE, NVIDIA_MODEL, NVIDIA_VISION_MODEL,
         OLLAMA_VISION,
+        GROQ_API_KEY,      GROQ_BASE,      GROQ_MODEL,
+        CEREBRAS_API_KEY,  CEREBRAS_BASE,  CEREBRAS_MODEL,
+        TOGETHER_API_KEY,  TOGETHER_BASE,  TOGETHER_MODEL,
+        OPENROUTER_API_KEY,OPENROUTER_BASE,OPENROUTER_MODEL,
+        MISTRAL_API_KEY,   MISTRAL_BASE,   MISTRAL_MODEL,
     )
     from storage import load_active_model
     from .openai_compat import OpenAICompatibleProvider
     from .ollama import OllamaProvider
 
+    # ── Priority 1: enterprise cloud (inserted at 0 by Connections tab) ────────
+
+    # ── Priority 2: NVIDIA (if key set) ───────────────────────────────────────
     if NVIDIA_API_KEY:
         _providers.append(OpenAICompatibleProvider(
             base_url     = NVIDIA_BASE,
@@ -28,9 +36,29 @@ def _build_defaults() -> None:
             name         = "NVIDIA",
             vision_model = NVIDIA_VISION_MODEL,
         ))
+
+    # ── Priority 3: Ollama local (primary — retries 3× before falling back) ───
     active_model = load_active_model()
     _providers.append(OllamaProvider(active_model, OLLAMA_VISION))
     log(f"[REGISTRY] Ollama model: {active_model}")
+
+    # ── Priority 4-8: free cloud fallbacks (tried only if Ollama fails) ───────
+    _free = [
+        (GROQ_API_KEY,       GROQ_BASE,       GROQ_MODEL,       "Groq"),
+        (CEREBRAS_API_KEY,   CEREBRAS_BASE,   CEREBRAS_MODEL,   "Cerebras"),
+        (TOGETHER_API_KEY,   TOGETHER_BASE,   TOGETHER_MODEL,   "Together"),
+        (OPENROUTER_API_KEY, OPENROUTER_BASE, OPENROUTER_MODEL, "OpenRouter"),
+        (MISTRAL_API_KEY,    MISTRAL_BASE,    MISTRAL_MODEL,    "Mistral"),
+    ]
+    for key, base, model, name in _free:
+        if key:
+            _providers.append(OpenAICompatibleProvider(
+                base_url = base,
+                api_key  = key,
+                model    = model,
+                name     = name,
+            ))
+            log(f"[REGISTRY] fallback: {name}")
 
 
 def get_providers() -> list[AIProvider]:

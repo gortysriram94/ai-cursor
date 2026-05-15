@@ -97,6 +97,31 @@ NVIDIA_MODEL        = "meta/llama-3.1-8b-instruct"
 NVIDIA_VISION_MODEL = "meta/llama-3.2-11b-vision-instruct"
 
 
+# ── Free cloud fallback providers ────────────────────────────────────────────
+# These are tried in order when Ollama fails after retries.
+# All are OpenAI-compatible and have free tiers. Keys go in .env.local.
+
+GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
+GROQ_BASE      = "https://api.groq.com/openai/v1"
+GROQ_MODEL     = "llama-3.1-8b-instant"
+
+CEREBRAS_API_KEY = os.environ.get("CEREBRAS_API_KEY", "")
+CEREBRAS_BASE    = "https://api.cerebras.ai/v1"
+CEREBRAS_MODEL   = "llama3.1-8b"
+
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
+TOGETHER_BASE    = "https://api.together.xyz/v1"
+TOGETHER_MODEL   = "meta-llama/Llama-3.2-3B-Instruct-Turbo"
+
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE    = "https://openrouter.ai/api/v1"
+OPENROUTER_MODEL   = "meta-llama/llama-3.1-8b-instruct:free"
+
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+MISTRAL_BASE    = "https://api.mistral.ai/v1"
+MISTRAL_MODEL   = "mistral-small-latest"
+
+
 # ── Jina / affiliate ─────────────────────────────────────────────────────────
 
 JINA_API_KEY       = os.environ.get("JINA_API_KEY") or os.environ.get("JINA_APi_KEY", "")
