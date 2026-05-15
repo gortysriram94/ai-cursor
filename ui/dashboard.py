@@ -240,276 +240,467 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         return lbl
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SETUP  (welcome + model download)
+    # SETUP  (settings hub: update · models · engine · hotkeys · display)
     # ═══════════════════════════════════════════════════════════════════════════
     setup = make_frame("setup")
 
-    # ── Canvas illustration: animated neural network ──────────────────────────
-    _canvas_w, _canvas_h = 460, 130
-    canvas = tk.Canvas(setup, bg=_T["bg"], width=_canvas_w, height=_canvas_h,
-                       highlightthickness=0)
-    canvas.pack(pady=(28, 0))
+    su_outer, su_inner = scrollable(setup)
+    su_outer.pack(fill="both", expand=True)
 
-    # Node positions (x, y) — 3 layers: 3 input, 5 hidden, 3 output
-    _NX = {
-        "i1": (60, 25),  "i2": (60, 65),  "i3": (60, 105),
-        "h1": (170, 13), "h2": (170, 40), "h3": (170, 65), "h4": (170, 90), "h5": (170, 117),
-        "o1": (280, 35), "o2": (280, 65), "o3": (280, 95),
-    }
-    _EDGES = [
-        ("i1","h1"),("i1","h2"),("i1","h3"),
-        ("i2","h2"),("i2","h3"),("i2","h4"),
-        ("i3","h3"),("i3","h4"),("i3","h5"),
-        ("h1","o1"),("h2","o1"),("h2","o2"),
-        ("h3","o1"),("h3","o2"),("h3","o3"),
-        ("h4","o2"),("h4","o3"),("h5","o3"),
-    ]
-    for a, b in _EDGES:
-        x1, y1 = _NX[a]; x2, y2 = _NX[b]
-        canvas.create_line(x1, y1, x2, y2, fill="#2A2620", width=1)
+    # ── Update banner slot (filled by background thread if update found) ───────
+    _su_banner_slot = tk.Frame(su_inner, bg=_T["bg"])
+    _su_banner_slot.pack(fill="x")
 
-    _node_ovals = {}
-    for name, (x, y) in _NX.items():
-        r = 7
-        canvas.create_oval(x-r-3, y-r-3, x+r+3, y+r+3, fill="#1E1A15", outline="")
-        oval = canvas.create_oval(x-r, y-r, x+r, y+r, fill="#2A2620", outline="#38332A", width=1)
-        _node_ovals[name] = oval
-
-    # Dot in the centre representing the model
-    canvas.create_oval(358, 48, 390, 80, fill="#2A2620", outline="#38332A", width=1)
-    canvas.create_oval(363, 53, 385, 75, fill="#DA7756", outline="")
-    canvas.create_text(374, 100, text="AI Cursor", fill=_T["muted"],
-                       font=("Segoe UI", 8), anchor="center")
-
-    _anim_seq  = ["i1","i2","i3","h1","h2","h3","h4","h5","o1","o2","o3"]
-    _anim_idx  = [0]
-
-    def _animate_nodes():
-        if not canvas.winfo_exists():
-            return
-        prev = _anim_seq[(_anim_idx[0] - 1) % len(_anim_seq)]
-        curr = _anim_seq[_anim_idx[0] % len(_anim_seq)]
-        canvas.itemconfig(_node_ovals[prev], fill="#2A2620", outline="#38332A")
-        canvas.itemconfig(_node_ovals[curr], fill="#DA7756", outline="#DA7756")
-        _anim_idx[0] += 1
-        canvas.after(220, _animate_nodes)
-
-    canvas.after(400, _animate_nodes)
-
-    # ── Welcome text ──────────────────────────────────────────────────────────
-    tk.Label(setup, text="Welcome to AI Cursor",
-             bg=_T["bg"], fg=_T["fg"],
-             font=("Segoe UI", 17, "bold")).pack(pady=(18, 4))
-    tk.Label(setup, text="Your local AI is getting ready.",
-             bg=_T["bg"], fg=_T["dim"],
-             font=("Segoe UI", 11)).pack()
-    tk.Label(setup, text="One-time download · stays on your machine · works offline · resumes if interrupted",
-             bg=_T["bg"], fg=_T["muted"],
-             font=("Segoe UI", 9)).pack(pady=(4, 0))
-
-    tk.Frame(setup, bg=_T["border"], height=1).pack(fill="x", padx=32, pady=16)
-
-    # ── Model size picker (shown before download starts) ──────────────────────
-    from models import get_by_id as _get_model
-    _MODEL_OPTS = [
-        ("qwen2.5:14b", "Aura 14B  —  Best quality",  "~9 GB  ·  deeper reasoning"),
-        ("qwen2.5:7b",  "Aura 7B  —  Faster download", "~4.7 GB  ·  half the wait"),
-        ("qwen2.5:3b",  "Aura 3B  —  Lightweight",    "~2 GB  ·  low RAM machines"),
-    ]
-    _chosen_model = [state.model_dl_status.get("_chosen") or "qwen2.5:14b"]
-
-    picker_frame = tk.Frame(setup, bg=_T["bg"], padx=32)
-    picker_frame.pack(fill="x", pady=(0, 10))
-    tk.Label(picker_frame, text="CHOOSE MODEL", bg=_T["bg"], fg=_T["muted"],
-             font=("Segoe UI", 7, "bold")).pack(anchor="w", pady=(0, 6))
-
-    _picker_btns = {}
-    btn_row = tk.Frame(picker_frame, bg=_T["bg"])
-    btn_row.pack(anchor="w")
-
-    def _select_model(key):
-        _chosen_model[0] = key
-        for k, b in _picker_btns.items():
-            active = (k == key)
-            b.configure(bg=_T["accent"] if active else _T["panel2"],
-                        fg="#1A1611" if active else _T["dim"])
-
-    for model_key, label, desc in _MODEL_OPTS:
-        col = tk.Frame(btn_row, bg=_T["bg"])
-        col.pack(side="left", padx=(0, 8))
-        active = (model_key == _chosen_model[0])
-        b = tk.Label(col, text=label,
-                     bg=_T["accent"] if active else _T["panel2"],
-                     fg="#1A1611" if active else _T["dim"],
-                     font=("Segoe UI", 9, "bold"), padx=14, pady=7, cursor="hand2")
-        b.pack()
-        tk.Label(col, text=desc, bg=_T["bg"], fg=_T["muted"],
-                 font=("Segoe UI", 8)).pack(pady=(3, 0))
-        b.bind("<Button-1>", lambda e, k=model_key: _select_model(k))
-        _picker_btns[model_key] = b
-
-    tk.Frame(setup, bg=_T["border"], height=1).pack(fill="x", padx=32, pady=(6, 16))
-
-    # ── Models section ────────────────────────────────────────────────────────
-    from config import OLLAMA_VISION
-
-    _models_info = [
-        (state.model_dl_status.get("qwen2.5:14b", {}),   "qwen2.5:14b",  "~9 GB  ·  reasoning & coding"),
-        (state.model_dl_status.get("qwen2.5:7b",  {}),   "qwen2.5:7b",   "~4.7 GB  ·  faster option"),
-        (state.model_dl_status.get("llava-phi3",  {}),   "llava-phi3",   "~1.7 GB  ·  vision"),
-    ]
-
-    models_outer = tk.Frame(setup, bg=_T["bg"], padx=32)
-    models_outer.pack(fill="x")
-
-    # Header label
-    models_hdr = tk.Frame(models_outer, bg=_T["bg"])
-    models_hdr.pack(fill="x", pady=(0, 6))
-    tk.Label(models_hdr, text="MODELS", bg=_T["bg"], fg=_T["muted"],
-             font=("Segoe UI", 7, "bold")).pack(side="left")
-    _chevron_lbl = tk.Label(models_hdr, text="▾", bg=_T["bg"], fg=_T["muted"],
-                            font=("Segoe UI", 9), cursor="hand2")
-    _chevron_lbl.pack(side="right")
-
-    # Expandable detail panel
-    _detail_frame = tk.Frame(models_outer, bg=_T["panel"], padx=16, pady=12)
-    _detail_open  = [False]
-
-    def _build_detail():
-        for child in _detail_frame.winfo_children():
-            child.destroy()
-        for s, mname, desc in _models_info:
-            row = tk.Frame(_detail_frame, bg=_T["panel"])
-            row.pack(fill="x", pady=(0, 10))
-            name_row = tk.Frame(row, bg=_T["panel"])
-            name_row.pack(fill="x")
-            tk.Label(name_row, text=mname, bg=_T["panel"], fg=_T["fg"],
-                     font=("Segoe UI", 9, "bold")).pack(side="left")
-            tk.Label(name_row, text=desc, bg=_T["panel"], fg=_T["muted"],
-                     font=("Segoe UI", 8)).pack(side="left", padx=(8, 0))
-            status = s.get("text", "Waiting…")
-            done   = s.get("done", False)
-            error  = s.get("error", False)
-            status_fg = _T["accent"] if done else (_T["danger"] if error else _T["dim"])
-            tk.Label(name_row, text=status, bg=_T["panel"], fg=status_fg,
-                     font=("Segoe UI", 8)).pack(side="right")
-            # Progress bar
-            pct = s.get("pct", 0) if not done else 100
-            bar_track = tk.Frame(row, bg=_T["panel2"], height=4)
-            bar_track.pack(fill="x", pady=(4, 0))
-            bar_track.pack_propagate(False)
-            if pct > 0:
-                tk.Frame(bar_track, bg=_T["accent"] if not error else _T["danger"],
-                         height=4).place(x=0, y=0, relwidth=min(1.0, pct / 100), relheight=1)
-
-    def _toggle_models():
-        if _detail_open[0]:
-            _detail_frame.pack_forget()
-            _chevron_lbl.configure(text="▾")
-        else:
-            _build_detail()
-            _detail_frame.pack(fill="x", pady=(0, 8))
-            _chevron_lbl.configure(text="▴")
-        _detail_open[0] = not _detail_open[0]
-
-    # Hover to expand
-    _hover_job = [None]
-    def _hover_enter(e):
-        if not _detail_open[0]:
-            _hover_job[0] = models_hdr.after(150, lambda: _toggle_models() if not _detail_open[0] else None)
-    def _hover_leave(e):
-        if _hover_job[0]:
-            try: models_hdr.after_cancel(_hover_job[0])
-            except Exception: pass
-
-    for _w in (models_hdr, _chevron_lbl):
-        _w.bind("<Button-1>", lambda e: _toggle_models())
-        _w.bind("<Enter>",    _hover_enter)
-        _w.bind("<Leave>",    _hover_leave)
-
-    # ── Status summary row (always visible) ───────────────────────────────────
-    _summary_var = tk.StringVar(value="Downloading model…")
-    _summary_lbl = tk.Label(models_outer, textvariable=_summary_var,
-                            bg=_T["bg"], fg=_T["dim"], font=("Segoe UI", 9))
-    _summary_lbl.pack(anchor="w", pady=(4, 0))
-
-    # ── "Get Started" button (hidden until model is ready) ────────────────────
-    _started_btn = tk.Label(setup, text="Get Started  →",
+    def _show_su_update_banner(info: dict):
+        for w in _su_banner_slot.winfo_children():
+            w.destroy()
+        banner = tk.Frame(_su_banner_slot, bg="#1E1A15", padx=14, pady=10)
+        banner.pack(fill="x")
+        tk.Frame(banner, bg=_T["accent"], width=2).pack(side="left", fill="y", padx=(0, 10))
+        tk.Label(banner, text=f"Update available: v{info['version']}",
+                 bg="#1E1A15", fg=_T["fg"],
+                 font=("Segoe UI", 9, "bold")).pack(side="left")
+        _upd_prog = tk.Label(banner, text="", bg="#1E1A15", fg=_T["muted"],
+                             font=("Segoe UI", 8))
+        _upd_prog.pack(side="left", padx=(8, 0))
+        _upd_btn = tk.Label(banner, text="Download & Install",
                             bg=_T["accent"], fg="#1A1611",
-                            font=("Segoe UI", 11, "bold"),
-                            padx=28, pady=11, cursor="hand2")
-    _started_btn.pack_forget()   # shown when download completes
+                            font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
+        _upd_btn.pack(side="right")
 
-    def _go_home(e=None):
-        state.is_first_run = False
-        switch("home")
-    _started_btn.bind("<Button-1>", _go_home)
+        def _start_upd_dl(e):
+            from updater import download_and_apply, apply_update
+            _upd_btn.configure(text="Downloading…", bg=_T["panel2"], cursor="", fg=_T["dim"])
+            _upd_btn.unbind("<Button-1>")
+            def _prog(pct): win.after(0, lambda: _upd_prog.configure(text=f"{pct}%"))
+            def _done(path):
+                win.after(0, lambda: (
+                    _upd_prog.configure(text=""),
+                    _upd_btn.configure(text="Restarting…", fg=_T["dim"]),
+                    win.after(1200, lambda: apply_update(path, root)),
+                ))
+            def _err(msg):
+                win.after(0, lambda: _upd_btn.configure(
+                    text="Failed — retry", bg=_T["danger"], fg="#fff", cursor="hand2"))
+                win.after(0, lambda: _upd_btn.bind("<Button-1>", _start_upd_dl))
+            download_and_apply(info["url"], info["version"], _prog, _done, _err)
 
-    # ── Poll download progress every 500ms ───────────────────────────────────
-    _dl_started = [False]
+        _upd_btn.bind("<Button-1>", _start_upd_dl)
 
-    def _poll_setup():
+    def _su_check_update():
+        try:
+            from updater import check_for_update
+            info = check_for_update()
+            if info and win.winfo_exists():
+                win.after(0, lambda: _show_su_update_banner(info))
+        except Exception:
+            pass
+    threading.Thread(target=_su_check_update, daemon=True).start()
+
+    # ── AI Engine ─────────────────────────────────────────────────────────────
+    section(su_inner, "AI Engine", top=14)
+
+    engine_c = card(su_inner, pady=14)
+    eng_top = tk.Frame(engine_c, bg=_T["panel"])
+    eng_top.pack(fill="x")
+
+    _eng_dot   = tk.Label(eng_top, text="●", bg=_T["panel"], fg=_T["muted"],
+                          font=("Segoe UI", 12))
+    _eng_dot.pack(side="left", padx=(0, 10))
+    _eng_mid   = tk.Frame(eng_top, bg=_T["panel"])
+    _eng_mid.pack(side="left", fill="x", expand=True)
+    _eng_title = tk.Label(_eng_mid, text="Checking…",
+                          bg=_T["panel"], fg=_T["fg"],
+                          font=("Segoe UI", 10, "bold"), anchor="w")
+    _eng_title.pack(anchor="w")
+    _eng_sub   = tk.Label(_eng_mid, text="",
+                          bg=_T["panel"], fg=_T["muted"],
+                          font=("Segoe UI", 8), anchor="w")
+    _eng_sub.pack(anchor="w")
+
+    eng_btns = tk.Frame(engine_c, bg=_T["panel"])
+    eng_btns.pack(anchor="e", pady=(10, 0))
+
+    _eng_badge = tk.Label(eng_btns, text="", bg=_T["panel"], fg=_T["accent"],
+                          font=("Segoe UI", 8))
+    _eng_badge.pack(side="right", padx=(8, 0))
+
+    def _do_refresh_status():
+        _eng_dot.configure(fg=_T["muted"])
+        _eng_title.configure(text="Checking…")
+        _eng_sub.configure(text="")
+        def _poll():
+            try:
+                from ai import is_ollama_running, is_model_pulled
+                from storage import load_active_model
+                from models import display_name as _dn
+                ollama_up   = is_ollama_running()
+                model_ready = ollama_up and is_model_pulled()
+                model_name  = _dn(load_active_model())
+            except Exception:
+                ollama_up = model_ready = False
+                model_name = "AI Model"
+            def _apply():
+                if not win.winfo_exists(): return
+                if model_ready:
+                    _eng_dot.configure(fg="#4a8c5c")
+                    _eng_title.configure(text=f"{model_name}  —  Ready")
+                    _eng_sub.configure(text="Press Alt+A anywhere on your screen")
+                elif ollama_up:
+                    _eng_dot.configure(fg="#b89440")
+                    _eng_title.configure(text="Ollama running — no model loaded")
+                    _eng_sub.configure(text="Download or activate a model below")
+                else:
+                    _eng_dot.configure(fg=_T["danger"])
+                    _eng_title.configure(text="Ollama not running")
+                    _eng_sub.configure(text="Use Restart Ollama to bring it back up")
+                _eng_badge.configure(text="Updated ✓")
+                win.after(2000, lambda: _eng_badge.configure(text=""))
+            win.after(0, _apply)
+        threading.Thread(target=_poll, daemon=True).start()
+
+    def _do_restart_ollama():
+        _eng_dot.configure(fg=_T["muted"])
+        _eng_title.configure(text="Restarting Ollama…")
+        _eng_sub.configure(text="")
+        _eng_badge.configure(text="")
+        def _restart():
+            from ai import start_bundled_ollama
+            start_bundled_ollama()
+            if win.winfo_exists():
+                win.after(0, _do_refresh_status)
+        threading.Thread(target=_restart, daemon=True).start()
+
+    _rst_btn = tk.Label(eng_btns, text="Restart Ollama",
+                        bg=_T["panel2"], fg=_T["dim"],
+                        font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
+    _ref_btn = tk.Label(eng_btns, text="Refresh Status",
+                        bg=_T["panel2"], fg=_T["dim"],
+                        font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
+    _rst_btn.pack(side="right", padx=(0, 6))
+    _ref_btn.pack(side="right", padx=(0, 6))
+    _rst_btn.bind("<Button-1>", lambda e: _do_restart_ollama())
+    _ref_btn.bind("<Button-1>", lambda e: _do_refresh_status())
+
+    _do_refresh_status()
+
+    # ── Models ────────────────────────────────────────────────────────────────
+    section(su_inner, "Models")
+
+    _su_mdl_body = tk.Frame(su_inner, bg=_T["bg"])
+    _su_mdl_body.pack(fill="x")
+
+    def _refresh_su_models():
         if not win.winfo_exists():
             return
+        for w in _su_mdl_body.winfo_children():
+            w.destroy()
 
-        # Start download on first poll — dashboard is visible by now
-        if not _dl_started[0] and state.is_first_run:
-            _dl_started[0] = True
-            chosen = _chosen_model[0]
-            from config import OLLAMA_VISION, NVIDIA_API_KEY
-            from ai import download_model_bg, get_vision_api
-            # Hide picker now that download is starting
-            picker_frame.pack_forget()
-            threading.Thread(target=download_model_bg, args=(chosen,), daemon=True).start()
-            if not get_vision_api() and not NVIDIA_API_KEY:
-                threading.Thread(target=download_model_bg, args=(OLLAMA_VISION,), daemon=True).start()
+        from models import MODELS, BADGE_COLORS
+        from storage import load_active_model
+        from ai import download_model_bg, delete_model
+        from providers.registry import set_active_ollama_model
 
-        chosen = _chosen_model[0]
-        main_s = state.model_dl_status.get(chosen, {})
-        done  = main_s.get("done", False)
-        error = main_s.get("error", False)
-        text  = main_s.get("text", "Downloading…")
+        active_id = load_active_model()
+        shown = [m for m in MODELS if m["category"] in ("main", "vision")]
 
-        def _fmt_eta(secs: int) -> str:
-            if secs <= 0: return ""
-            if secs < 60: return f"~{secs}s"
-            m = secs // 60
-            return f"~{m}m" if m < 60 else f"~{m//60}h {m%60}m"
+        for m in shown:
+            mid        = m["id"]
+            dl_s       = state.model_dl_status.get(mid, {})
+            downloaded = bool(dl_s.get("done"))
+            error      = bool(dl_s.get("error"))
+            dlding     = bool(dl_s) and not downloaded and not error and not dl_s.get("stopped") and not dl_s.get("queued")
+            is_active  = (mid == active_id)
 
-        if done:
-            _summary_var.set("Model ready — press Alt+A to start")
-            _summary_lbl.configure(fg=_T["accent"])
-            if not _started_btn.winfo_ismapped():
-                _started_btn.pack(pady=(20, 0))
-        elif error:
-            _summary_var.set(f"Download failed: {text}")
-            _summary_lbl.configure(fg=_T["danger"])
-        else:
-            pct   = main_s.get("pct", 0)
-            mb    = main_s.get("mb", 0)
-            tot   = main_s.get("tot", 0)
-            spd   = main_s.get("speed_mbs", 0)
-            eta   = main_s.get("eta_secs", 0)
-            if tot > 0:
-                parts = [f"{pct}%  ·  {mb} MB / {tot} MB"]
-                if spd > 0:   parts.append(f"{spd} MB/s")
-                if eta > 0:   parts.append(_fmt_eta(eta))
-                _summary_var.set("  ·  ".join(parts))
+            c = card(_su_mdl_body, pady=10)
+
+            top = tk.Frame(c, bg=_T["panel"])
+            top.pack(fill="x")
+            tk.Label(top, text=m["name"], bg=_T["panel"], fg=_T["fg"],
+                     font=("Segoe UI", 10, "bold")).pack(side="left")
+            if m["badge"]:
+                tk.Label(top, text=m["badge"],
+                         bg=BADGE_COLORS.get(m["badge_col"], _T["panel2"]), fg="#fff",
+                         font=("Segoe UI", 7, "bold"),
+                         padx=5, pady=1).pack(side="left", padx=(6, 0))
+            if is_active:
+                tk.Label(top, text="● Active", bg=_T["panel"], fg=_T["accent"],
+                         font=("Segoe UI", 8, "bold")).pack(side="right")
+
+            tk.Label(c, text=m["tagline"], bg=_T["panel"], fg=_T["dim"],
+                     font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+            tk.Label(c,
+                     text=f"{m['size_gb']} GB  ·  {m['ram_gb']} GB RAM  ·  {m['speed']}",
+                     bg=_T["panel"], fg=_T["muted"],
+                     font=("Segoe UI", 8)).pack(anchor="w", pady=(1, 0))
+
+            # Download progress bar
+            if dlding:
+                pct = dl_s.get("pct", 0)
+                bar = tk.Frame(c, bg=_T["panel2"], height=3)
+                bar.pack(fill="x", pady=(6, 2))
+                bar.pack_propagate(False)
+                if pct > 0:
+                    tk.Frame(bar, bg=_T["accent"], height=3).place(
+                        x=0, y=0, relwidth=min(1.0, pct / 100), relheight=1)
+                spd = dl_s.get("speed_mbs", 0)
+                eta = dl_s.get("eta_secs", 0)
+                txt = dl_s.get("text", "Downloading…")
+                if spd > 0:
+                    m2, s2 = eta // 60, eta % 60
+                    txt = f"{pct}%  ·  {spd} MB/s  ·  ~{m2}m {s2}s" if m2 else f"{pct}%  ·  {spd} MB/s  ·  ~{s2}s"
+                tk.Label(c, text=txt, bg=_T["panel"], fg=_T["dim"],
+                         font=("Segoe UI", 8)).pack(anchor="w")
+            # Status line
+            if m.get("bundled") and downloaded:
+                tk.Label(c, text="● Pre-installed", bg=_T["panel"], fg="#4a8c5c",
+                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+            elif downloaded:
+                col = "#4a8c5c" if is_active else _T["muted"]
+                tk.Label(c, text="● Available" if is_active else "● Downloaded",
+                         bg=_T["panel"], fg=col,
+                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+            elif error:
+                tk.Label(c, text=f"✗ {dl_s.get('text', 'Download failed')}",
+                         bg=_T["panel"], fg=_T["danger"],
+                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+            elif dl_s.get("stopped"):
+                tk.Label(c, text="⊘ Stopped", bg=_T["panel"], fg=_T["muted"],
+                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+            elif dl_s.get("queued"):
+                tk.Label(c, text="◌ Queued", bg=_T["panel"], fg=_T["muted"],
+                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
             else:
-                _summary_var.set(text or "Starting download…")
-            _summary_lbl.configure(fg=_T["dim"])
+                tk.Label(c, text="Not downloaded", bg=_T["panel"], fg=_T["muted"],
+                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
 
-        # Refresh detail if open
-        if _detail_open[0]:
-            _build_detail()
+            # Action buttons
+            a_row = tk.Frame(c, bg=_T["panel"])
+            a_row.pack(anchor="e", pady=(6, 0))
 
-        win.after(500, _poll_setup)
+            if dlding:
+                def _stop_dl(m_id=mid):
+                    from ai import cancel_download
+                    cancel_download(m_id)
+                    win.after(300, _refresh_su_models)
+                sb = tk.Label(a_row, text="Stop", bg=_T["panel2"], fg=_T["danger"],
+                              font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
+                sb.pack(side="left")
+                sb.bind("<Button-1>", lambda e, f=_stop_dl: f())
 
-    win.after(500, _poll_setup)
+            elif dl_s.get("queued") and not downloaded:
+                def _dequeue(m_id=mid):
+                    state.model_dl_status[m_id] = {"stopped": True, "text": "Stopped"}
+                    _refresh_su_models()
+                sb = tk.Label(a_row, text="Remove from queue", bg=_T["panel2"], fg=_T["muted"],
+                              font=("Segoe UI", 8), padx=10, pady=4, cursor="hand2")
+                sb.pack(side="left")
+                sb.bind("<Button-1>", lambda e, f=_dequeue: f())
 
-    # ── Show expanded by default on first open ────────────────────────────────
-    _toggle_models()
+            elif not downloaded and not dlding:
+                def _dl(m_id=mid):
+                    state.model_dl_status.pop(m_id, None)  # clear any stopped state
+                    threading.Thread(target=download_model_bg, args=(m_id,),
+                                     daemon=True).start()
+                    win.after(800, _refresh_su_models)
+                b = tk.Label(a_row, text="Download", bg=_T["accent"], fg="#1A1611",
+                             font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
+                b.pack(side="left")
+                b.bind("<Button-1>", lambda e, f=_dl: f())
+
+            if downloaded and not is_active and m["category"] == "main":
+                def _activate(m_id=mid):
+                    set_active_ollama_model(m_id)
+                    _refresh_su_models()
+                    _do_refresh_status()
+                b = tk.Label(a_row, text="Set Active", bg=_T["panel2"], fg=_T["accent"],
+                             font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
+                b.pack(side="left", padx=(0 if not a_row.winfo_children() else 6, 6))
+                b.bind("<Button-1>", lambda e, f=_activate: f())
+
+            if downloaded:
+                def _del(m_id=mid):
+                    threading.Thread(
+                        target=lambda: (
+                            delete_model(m_id),
+                            win.after(0, _refresh_su_models) if win.winfo_exists() else None,
+                        ), daemon=True).start()
+                db = tk.Label(a_row, text="Delete", bg=_T["panel2"], fg=_T["danger"],
+                              font=("Segoe UI", 8), padx=8, pady=4, cursor="hand2")
+                db.pack(side="left")
+                db.bind("<Button-1>", lambda e, f=_del: f())
+
+        # Auto-refresh while any download is actively in progress (not stopped/queued)
+        if any(s and not s.get("done") and not s.get("error")
+               and not s.get("stopped") and not s.get("queued")
+               for s in state.model_dl_status.values()):
+            win.after(1000, _refresh_su_models)
+
+        # Background Ollama presence check for already-downloaded models
+        def _bg_check():
+            import http.client as _hc, json as _js
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from config import OLLAMA_PORT
+            unknown = [m["id"] for m in MODELS
+                       if not state.model_dl_status.get(m["id"], {}).get("done")]
+            if not unknown:
+                return
+            def _chk(mid):
+                for port in [OLLAMA_PORT, 11434]:
+                    try:
+                        conn = _hc.HTTPConnection("localhost", port, timeout=3)
+                        conn.request("POST", "/api/show",
+                                     body=_js.dumps({"name": mid}).encode(),
+                                     headers={"Content-Type": "application/json"})
+                        resp = conn.getresponse(); conn.close()
+                        if resp.status == 200:
+                            return mid, True
+                    except Exception:
+                        pass
+                return mid, False
+            changed = False
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                for f in as_completed({pool.submit(_chk, m): m for m in unknown}, timeout=8):
+                    try:
+                        mid, found = f.result()
+                        if found:
+                            state.model_dl_status[mid] = {"done": True, "pct": 100, "text": "Ready ✓"}
+                            changed = True
+                    except Exception:
+                        pass
+            if changed and win.winfo_exists():
+                win.after(0, _refresh_su_models)
+
+        threading.Thread(target=_bg_check, daemon=True).start()
+
+    _refresh_su_models()
+
+    # ── Hotkeys ───────────────────────────────────────────────────────────────
+    section(su_inner, "Hotkeys")
+    tk.Label(su_inner,
+             text="Click a binding, then press a key combo or a mouse button.",
+             bg=_T["bg"], fg=_T["muted"], font=("Segoe UI", 9),
+             anchor="w", padx=20).pack(fill="x", pady=(0, 8))
+
+    su_hk_pending = dict(load_hotkeys())
+    su_hk_vars: dict[str, tk.StringVar] = {}
+    _su_hk_defs = {
+        "menu":    "Action Menu",
+        "history": "History",
+        "style":   "Style",
+        "form":    "Form Fill",
+    }
+
+    for _hk_action, _hk_label in _su_hk_defs.items():
+        c = card(su_inner, pady=12)
+        card_row(c, _hk_label, "Click to reassign")
+        var = tk.StringVar(value=format_hotkey(su_hk_pending.get(_hk_action, "")))
+        su_hk_vars[_hk_action] = var
+        key_lbl = tk.Label(c, textvariable=var,
+                           bg=_T["panel2"], fg=_T["fg"],
+                           font=("JetBrains Mono", 10), width=20,
+                           relief="flat", pady=6, padx=12, cursor="hand2")
+        key_lbl.pack(side="right")
+
+        def _make_recorder(act=_hk_action, lbl=key_lbl):
+            held: set = set()
+            _btns = ("<Button-2>", "<Button-3>", "<Button-8>", "<Button-9>")
+            _mouse_map = {2: "mouse2", 3: "mouse3", 8: "mouse8", 9: "mouse9"}
+
+            def _stop():
+                lbl.configure(bg=_T["panel2"], fg=_T["fg"])
+                win.unbind("<KeyPress>")
+                win.unbind("<KeyRelease>")
+                for b in _btns:
+                    try: win.unbind(b)
+                    except Exception: pass
+
+            def _on_key(e):
+                k = e.keysym.lower()
+                if k in ("alt_l", "alt_r"):           held.add("alt")
+                elif k in ("control_l", "control_r"): held.add("ctrl")
+                elif k in ("shift_l", "shift_r"):     held.add("shift")
+                elif k == "escape":                    _stop()
+                else:
+                    combo = "+".join(sorted(held) + [k])
+                    su_hk_vars[act].set(format_hotkey(combo))
+                    su_hk_pending[act] = combo
+                    _stop()
+
+            def _on_key_rel(e):
+                k = e.keysym.lower()
+                if k in ("alt_l", "alt_r"):           held.discard("alt")
+                elif k in ("control_l", "control_r"): held.discard("ctrl")
+                elif k in ("shift_l", "shift_r"):     held.discard("shift")
+
+            def _on_mouse(e):
+                btn = _mouse_map.get(e.num, f"mouse{e.num}")
+                combo = "+".join(sorted(held) + [btn]) if held else btn
+                su_hk_vars[act].set(format_hotkey(combo))
+                su_hk_pending[act] = combo
+                _stop()
+
+            def _activate(e):
+                held.clear()
+                lbl.configure(bg=_T["accent"], fg=_T["bg"])
+                su_hk_vars[act].set("press key or click…")
+                win.bind("<KeyPress>",   _on_key)
+                win.bind("<KeyRelease>", _on_key_rel)
+                for b in _btns:
+                    win.bind(b, _on_mouse)
+
+            lbl.bind("<Button-1>", _activate)
+
+        _make_recorder()
+
+    c = card(su_inner, pady=12)
+    su_save_badge = tk.Label(c, text="", bg=_T["panel"], fg=_T["muted"],
+                             font=("Segoe UI", 9))
+    su_save_badge.pack(side="right", padx=(8, 0))
+
+    def _save_su_hk():
+        import importlib
+        save_hotkeys(su_hk_pending)
+        try:
+            importlib.import_module("main").restart_hotkey_listener()
+        except Exception:
+            pass
+        su_save_badge.configure(text="Saved ✓", fg=_T["accent"])
+        win.after(1800, lambda: su_save_badge.configure(text=""))
+
+    su_save_btn = tk.Label(c, text="Save Hotkeys", bg=_T["accent"], fg=_T["bg"],
+                           font=("Segoe UI", 9, "bold"), padx=16, pady=5, cursor="hand2")
+    su_save_btn.pack(side="right")
+    su_save_btn.bind("<Button-1>", lambda e: _save_su_hk())
+    tk.Label(c, text="Applies new bindings immediately.",
+             bg=_T["panel"], fg=_T["muted"], font=("Segoe UI", 9),
+             anchor="w").pack(side="left", fill="x", expand=True)
+
+    # ── Display ───────────────────────────────────────────────────────────────
+    section(su_inner, "Display")
+
+    c = card(su_inner, pady=12)
+    card_row(c, "Hover Highlight", "Orange outline around element under cursor")
+    toggle_widget(c, load_hover_highlight,
+                  lambda: save_hover_highlight(True),
+                  lambda: save_hover_highlight(False))
+
+    c = card(su_inner, pady=12)
+    card_row(c, "Flame Cursor", "Replace system arrow with flame icon")
+
+    def _su_cursor_on():
+        save_flame_cursor(True)
+        try:
+            from ui.icons import set_flame_cursor; set_flame_cursor()
+        except Exception: pass
+
+    def _su_cursor_off():
+        save_flame_cursor(False)
+        try:
+            from ui.icons import restore_default_cursor; restore_default_cursor()
+        except Exception: pass
+
+    toggle_widget(c, load_flame_cursor, _su_cursor_on, _su_cursor_off)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # HOME  (first tab — welcome screen + live status)

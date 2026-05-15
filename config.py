@@ -54,6 +54,8 @@ elif _os == "Windows":
 else:
     OLLAMA_MODELS_DIR = Path.home() / ".pushpa" / "models"
 
+OLLAMA_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
 LOG_FILE       = APP_DIR / "pushpa.log"
 LOG_FILE_PREV  = APP_DIR / "pushpa_prev.log"
 LOG_PROMPTS    = os.environ.get("PUSHPA_LOG_PROMPTS", "0") == "1"    # set in .env.local to debug prompts

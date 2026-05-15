@@ -10,6 +10,20 @@ MODELS: list[dict] = [
     # ── Main AI models ────────────────────────────────────────────────────────
 
     {
+        "id":       "qwen2.5:0.5b",
+        "name":     "Aura Starter",
+        "tagline":  "Pre-installed · instant start",
+        "size_gb":  0.4,
+        "ram_gb":   2,
+        "speed":    "~120 tok/s",
+        "stars":    2,
+        "badge":    "Pre-installed",
+        "badge_col":"teal",
+        "best_for": "Instant responses, quick tasks, low-RAM machines",
+        "category": "main",
+        "bundled":  True,
+    },
+    {
         "id":       "qwen2.5:14b",
         "name":     "Aura 14B",
         "tagline":  "Best quality · most capable",

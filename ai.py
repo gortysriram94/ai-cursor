@@ -34,6 +34,11 @@ from log import log
 import state
 from brain.context_bundle import ContextBundle
 
+# Download cancellation flags: model_id → threading.Event
+_cancel_flags: dict[str, threading.Event] = {}
+# Background queue thread handle
+_dl_queue_thread: list = [None]
+
 
 # ── Ollama health checks ──────────────────────────────────────────────────────
 
@@ -217,6 +222,8 @@ def delete_model(model: str) -> bool:
 
 def download_model_bg(model: str):
     """Pull an Ollama model in a background thread. No Tkinter calls — writes to state only."""
+    cancel = threading.Event()
+    _cancel_flags[model] = cancel
     state.model_dl_status[model] = {"text": "Connecting…"}
     try:
         import tray
@@ -228,6 +235,15 @@ def download_model_bg(model: str):
         res = requests.post(f"{OLLAMA_API}/api/pull",
                             json={"name": model}, stream=True, timeout=None)
         for line in res.iter_lines():
+            if cancel.is_set():
+                try: res.close()
+                except Exception: pass
+                state.model_dl_status[model] = {
+                    "stopped": True, "text": "Stopped",
+                    "pct": state.model_dl_status.get(model, {}).get("pct", 0),
+                }
+                log(f"[PULL] {model} stopped by user")
+                return
             if not line:
                 continue
             data = json.loads(line)
@@ -260,6 +276,113 @@ def download_model_bg(model: str):
     except Exception as e:
         state.model_dl_status[model] = {"error": True, "text": str(e)}
         log(f"[PULL FAILED] {model}: {e}")
+
+
+def cancel_download(model: str) -> None:
+    """Signal a running download to stop. UI-safe — call from any thread."""
+    flag = _cancel_flags.get(model)
+    if flag:
+        flag.set()
+    # Update status immediately for UI responsiveness
+    cur = state.model_dl_status.get(model, {})
+    state.model_dl_status[model] = {
+        "stopped": True,
+        "text": "Stopped",
+        "pct": cur.get("pct", 0),
+    }
+    log(f"[PULL] cancel requested for {model}")
+
+
+def mark_bundled_model_ready() -> None:
+    """
+    Check if bundled model files were installed by the installer.
+    If found, mark as downloaded and set as active model if nothing else is active.
+    """
+    from models import MODELS
+    from storage import add_downloaded_model, load_downloaded_models, load_active_model, save_active_model
+    previously_downloaded = load_downloaded_models()
+    for m in MODELS:
+        if not m.get("bundled"):
+            continue
+        mid = m["id"]
+        if state.model_dl_status.get(mid, {}).get("done"):
+            continue
+        name, _, tag = mid.partition(":")
+        tag = tag or "latest"
+        manifest = OLLAMA_MODELS_DIR / "manifests" / "registry.ollama.ai" / "library" / name / tag
+        if manifest.exists():
+            state.model_dl_status[mid] = {"done": True, "pct": 100, "text": "Ready ✓"}
+            add_downloaded_model(mid)
+            # Promote to active if the current active model isn't downloaded yet
+            if load_active_model() not in previously_downloaded:
+                save_active_model(mid)
+                try:
+                    from providers.registry import set_active_ollama_model
+                    set_active_ollama_model(mid)
+                except Exception:
+                    pass
+            log(f"[BUNDLED] {mid} manifest found — marked ready")
+        else:
+            log(f"[BUNDLED] {mid} manifest not found at {manifest} — will download normally")
+
+
+def start_auto_download_queue() -> None:
+    """
+    Download all non-bundled, non-downloaded models in size order (smallest first).
+    Sequential — one download at a time. Skips models the user has stopped.
+    Safe to call multiple times; only one queue thread runs.
+    """
+    if _dl_queue_thread[0] and _dl_queue_thread[0].is_alive():
+        return
+
+    def _run():
+        # Wait for Ollama to be available (up to 60 seconds)
+        for _ in range(60):
+            if is_ollama_running():
+                break
+            time.sleep(1)
+        else:
+            log("[QUEUE] Ollama not available — download queue aborted")
+            return
+
+        time.sleep(5)  # brief settle time after Ollama starts
+
+        from models import MODELS
+        from storage import load_downloaded_models
+        queue = sorted(
+            [m for m in MODELS if not m.get("bundled")],
+            key=lambda m: m.get("size_gb", 0),
+        )
+
+        for m in queue:
+            mid = m["id"]
+            # Skip if already downloaded
+            if state.model_dl_status.get(mid, {}).get("done"):
+                continue
+            if mid in load_downloaded_models():
+                state.model_dl_status[mid] = {"done": True, "pct": 100, "text": "Ready ✓"}
+                continue
+            # Skip if user explicitly stopped it this session
+            if state.model_dl_status.get(mid, {}).get("stopped"):
+                continue
+            # Mark as queued so the UI can show "Queued"
+            if not state.model_dl_status.get(mid):
+                state.model_dl_status[mid] = {"queued": True, "text": "Queued"}
+            log(f"[QUEUE] downloading {mid}")
+            download_model_bg(mid)  # blocks until done, error, or stopped
+            s = state.model_dl_status.get(mid, {})
+            if s.get("stopped"):
+                log(f"[QUEUE] {mid} stopped — skipping, continuing queue")
+            elif s.get("error"):
+                log(f"[QUEUE] {mid} error — continuing queue")
+            time.sleep(2)  # small gap between downloads
+
+        log("[QUEUE] background download queue complete")
+
+    t = threading.Thread(target=_run, daemon=True, name="dl-queue")
+    _dl_queue_thread[0] = t
+    t.start()
+    log("[QUEUE] background download queue started")
 
 
 def _warmup_model(model: str):

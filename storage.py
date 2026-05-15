@@ -350,7 +350,15 @@ def parse_hotkey(s: str) -> tuple[int, int]:
 
 
 def format_hotkey(s: str) -> str:
-    """'ctrl+shift+a' → 'Ctrl+Shift+A'"""
+    """'ctrl+shift+a' → 'Ctrl+Shift+A', 'alt+mouse3' → 'Alt+Right Click'"""
     if not s:
         return "—"
-    return "+".join(p.capitalize() for p in s.split("+"))
+    _mouse = {
+        "mouse2": "Middle Click",
+        "mouse3": "Right Click",
+        "mouse8": "Back Button",
+        "mouse9": "Fwd Button",
+    }
+    return "+".join(
+        _mouse.get(p, p.capitalize()) for p in s.split("+")
+    )

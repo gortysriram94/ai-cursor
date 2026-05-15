@@ -37,6 +37,50 @@ jobs:
           Copy-Item ollama_tmp\ollama.exe ollama\ollama.exe
           Write-Host "ollama.exe: $([math]::Round((Get-Item ollama\ollama.exe).Length / 1MB, 1)) MB"
 
+      - name: Bundle starter model (qwen2.5:0.5b)
+        run: |
+          # Start Ollama pointing at our app's models directory
+          $modelsDir = "$env:APPDATA\Pushpa\models"
+          New-Item -ItemType Directory -Force $modelsDir | Out-Null
+          $env:OLLAMA_MODELS = $modelsDir
+          $env:OLLAMA_HOST   = "127.0.0.1:11435"
+          Start-Process -FilePath "ollama\ollama.exe" -ArgumentList "serve" `
+            -NoNewWindow -RedirectStandardOutput "$env:TEMP\ollama_bundle.log" `
+            -RedirectStandardError "$env:TEMP\ollama_bundle_err.log"
+          Write-Host "Waiting for Ollama to start…"
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep 1
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:11435/" -UseBasicParsing -TimeoutSec 1 -EA Stop
+              if ($r.StatusCode -eq 200) { $ready = $true; break }
+            } catch {}
+          }
+          if (-not $ready) { Write-Host "Ollama did not start — skipping model bundle"; exit 0 }
+          Write-Host "Ollama ready. Pulling qwen2.5:0.5b…"
+          $env:OLLAMA_HOST = "127.0.0.1:11435"
+          ollama\ollama.exe pull qwen2.5:0.5b
+          Write-Host "Pull complete."
+          # Stage manifest + blobs
+          $manifestSrc = "$modelsDir\manifests\registry.ollama.ai\library\qwen2.5\0.5b"
+          if (-not (Test-Path $manifestSrc)) { Write-Host "Manifest not found — skipping"; exit 0 }
+          $manifest = Get-Content $manifestSrc | ConvertFrom-Json
+          New-Item -ItemType Directory -Force "ollama_starter\blobs" | Out-Null
+          New-Item -ItemType Directory -Force "ollama_starter\manifests\registry.ollama.ai\library\qwen2.5" | Out-Null
+          Copy-Item $manifestSrc "ollama_starter\manifests\registry.ollama.ai\library\qwen2.5\0.5b"
+          $allLayers = @($manifest.config) + $manifest.layers
+          foreach ($layer in $allLayers) {
+            if ($null -eq $layer) { continue }
+            $digest = $layer.digest -replace ":", "-"
+            $src = "$modelsDir\blobs\$digest"
+            if (Test-Path $src) {
+              Copy-Item $src "ollama_starter\blobs\$digest"
+              Write-Host "Staged blob: $digest ($([math]::Round((Get-Item $src).Length/1MB,1)) MB)"
+            }
+          }
+          $totalMB = (Get-ChildItem "ollama_starter\blobs" | Measure-Object Length -Sum).Sum / 1MB
+          Write-Host "Starter model staged: $([math]::Round($totalMB, 1)) MB total"
+
       - name: Stamp version
         run: |
           $ver = "${{ env.VERSION }}".TrimStart("v")

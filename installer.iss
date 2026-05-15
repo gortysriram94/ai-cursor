@@ -27,6 +27,10 @@ Name: "desktopicon"; Description: "Add a desktop shortcut"; GroupDescription: "S
 
 [Files]
 Source: "dist\AIcursor-windows\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Bundled starter model (qwen2.5:0.5b) — staged by CI before build
+; These files are installed to the Ollama models dir so the app starts immediately.
+Source: "ollama_starter\blobs\*";                                                  DestDir: "{userappdata}\Pushpa\models\blobs";                                       Flags: onlyifdoesntexist; Check: BundledModelExists
+Source: "ollama_starter\manifests\registry.ollama.ai\library\qwen2.5\0.5b";       DestDir: "{userappdata}\Pushpa\models\manifests\registry.ollama.ai\library\qwen2.5"; Flags: onlyifdoesntexist; Check: BundledModelExists
 
 [Icons]
 Name: "{userprograms}\AI Cursor"; Filename: "{app}\AIcursor.exe"
@@ -41,3 +45,9 @@ Filename: "taskkill.exe"; Parameters: "/f /im ollama.exe"; Flags: runhidden
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\Pushpa"
+
+[Code]
+function BundledModelExists(): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{src}\ollama_starter\manifests\registry.ollama.ai\library\qwen2.5\0.5b'));
+end;

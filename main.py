@@ -73,6 +73,13 @@ def setup_ollama(root: tk.Tk) -> bool:
 
     atexit.register(stop_bundled_ollama)
 
+    # Check if bundled model (shipped with installer) is on disk
+    try:
+        from ai import mark_bundled_model_ready
+        mark_bundled_model_ready()
+    except Exception as _bme:
+        log(f"[BUNDLED] check failed: {_bme}")
+
     if not is_model_pulled():
         state.is_first_run = True
         # Download starts when the dashboard welcome screen opens — not here
@@ -344,6 +351,10 @@ def main():
     atexit.register(_tray.stop)
 
     setup_ollama(root)
+
+    # Start background auto-download queue (lowest → highest size, skips done/stopped)
+    from ai import start_auto_download_queue
+    start_auto_download_queue()
 
     # ── Ollama watchdog ───────────────────────────────────────────────────────
     from ai import start_ollama_watchdog
