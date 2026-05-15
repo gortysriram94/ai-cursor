@@ -140,6 +140,30 @@ def mark_installed() -> None:
         pass
 
 
+def save_just_updated_flag(version: str) -> None:
+    """Write a flag so the next launch knows an update just completed."""
+    try:
+        from config import APP_DIR
+        flag = APP_DIR / ".just_updated"
+        flag.write_text(version, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def pop_just_updated_flag() -> "str | None":
+    """Read and delete the just-updated flag. Returns version string or None."""
+    try:
+        from config import APP_DIR
+        flag = APP_DIR / ".just_updated"
+        if flag.exists():
+            ver = flag.read_text(encoding="utf-8").strip()
+            flag.unlink()
+            return ver or "latest"
+    except Exception:
+        pass
+    return None
+
+
 # ── Preferences (per-app tone memory) ────────────────────────────────────────
 
 def load_prefs() -> dict:

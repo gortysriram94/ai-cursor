@@ -456,6 +456,44 @@ def call_ai_streaming(text: str, action: str, tone: str,
                       bundle: "ContextBundle | None" = None,
                       status_cb=None,
                       on_sources=None):
+    import time as _t_proc
+    from datetime import datetime as _dt
+    _proc_entry = {
+        "id":          len(state.process_log),
+        "timestamp":   _dt.now().strftime("%H:%M:%S"),
+        "date":        _dt.now().strftime("%b %d"),
+        "action":      action,
+        "app":         getattr(getattr(state, "working_context", None), "app_name", "") or "",
+        "input":       (text or "")[:400],
+        "output":      "",
+        "provider":    "",
+        "duration_ms": 0,
+        "status":      "running",
+        "_t0":         _t_proc.time(),
+    }
+    state.process_log.append(_proc_entry)
+    if len(state.process_log) > 300:
+        state.process_log.pop(0)
+
+    _orig_on_token = on_token
+    _orig_on_done  = on_done
+    _orig_on_error = on_error
+
+    def on_token(tok):
+        _proc_entry["output"] += tok
+        _orig_on_token(tok)
+
+    def on_done():
+        _proc_entry["status"]      = "done"
+        _proc_entry["provider"]    = state.last_ai_provider
+        _proc_entry["duration_ms"] = int((_t_proc.time() - _proc_entry["_t0"]) * 1000)
+        _orig_on_done()
+
+    def on_error():
+        _proc_entry["status"]      = "error"
+        _proc_entry["duration_ms"] = int((_t_proc.time() - _proc_entry["_t0"]) * 1000)
+        _orig_on_error()
+
     from prompts import build_prompt
     from log import log_prompt
     from config import ACTION_MAX_TOKENS, _DEFAULT_MAX_TOKENS

@@ -448,6 +448,14 @@ def main():
     from crash import install_crash_handlers
     install_crash_handlers(root, platform_instance=plat)
 
+    # ── Post-update welcome ───────────────────────────────────────────────────
+    from storage import pop_just_updated_flag
+    _updated_ver = pop_just_updated_flag()
+    if _updated_ver:
+        log(f"[UPDATE] successfully updated — showing home")
+        from ui.dashboard import show_dashboard
+        root.after(1000, lambda: show_dashboard(root, initial_tab="home"))
+
     # ── First-install: open dashboard automatically ───────────────────────────
     from storage import is_first_install, mark_installed
     if is_first_install():

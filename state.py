@@ -80,3 +80,8 @@ model_dl_status: dict = {}
 # ── Pending update ────────────────────────────────────────────────────────────
 # Set by startup update check so the dashboard banner shows instantly.
 pending_update: dict | None = None   # {"version": "x.y.z", "url": "..."}
+
+# ── Process log ───────────────────────────────────────────────────────────────
+# Each entry: {id, timestamp, date, action, app, input, output, provider, duration_ms, status}
+# status: "running" | "done" | "error"
+process_log: list = []

@@ -42,6 +42,7 @@ _T = {
 _TABS = [
     ("home",        "⊞", "Home"),
     ("setup",       "✺", "Setup"),
+    ("processes",   "◉", "Processes"),
     ("markets",     "◎", "Markets"),
     ("style",       "✦", "Style"),
     ("memory",      "▤", "Memory"),
@@ -286,11 +287,13 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
             _upd_btn.unbind("<Button-1>")
             def _prog(pct): win.after(0, lambda: _upd_prog.configure(text=f"{pct}%"))
             def _done(path):
-                win.after(0, lambda: (
-                    _upd_prog.configure(text=""),
-                    _upd_btn.configure(text="Restarting…", fg=_T["dim"]),
-                    win.after(1200, lambda: apply_update(path, root)),
-                ))
+                def _apply():
+                    _upd_prog.configure(text="Ready to install")
+                    _upd_btn.configure(text="Restart & Apply",
+                                       bg=_T["accent"], fg="#1A1611",
+                                       cursor="hand2")
+                    _upd_btn.bind("<Button-1>", lambda e: apply_update(path, root))
+                win.after(0, _apply)
             def _err(msg):
                 win.after(0, lambda: _upd_btn.configure(
                     text="Failed — retry", bg=_T["danger"], fg="#fff", cursor="hand2"))
@@ -815,9 +818,13 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
             _dl_btn.unbind("<Button-1>")
             def _prog(pct): win.after(0, lambda: _prog_lbl.configure(text=f"{pct}%"))
             def _done(path):
-                win.after(0, lambda: (_prog_lbl.configure(text=""),
-                                       _dl_btn.configure(text="Restarting…", fg=_T["dim"]),
-                                       win.after(1200, lambda: apply_update(path, root))))
+                def _apply():
+                    _prog_lbl.configure(text="Ready to install")
+                    _dl_btn.configure(text="Restart & Apply",
+                                      bg=_T["accent"], fg="#1A1611",
+                                      cursor="hand2")
+                    _dl_btn.bind("<Button-1>", lambda e: apply_update(path, root))
+                win.after(0, _apply)
             def _err(msg):
                 win.after(0, lambda: _dl_btn.configure(
                     text="Failed — retry", bg=_T["danger"], fg="#fff", cursor="hand2"))
@@ -1111,6 +1118,113 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
     win.protocol("WM_DELETE_WINDOW", _on_close)
     x_btn.bind("<Button-1>", lambda e: _on_close())
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PROCESSES  (Alt+A activity log)
+    # ═══════════════════════════════════════════════════════════════════════════
+    proc_tab = make_frame("processes")
+    pr_outer, pr_inner = scrollable(proc_tab)
+    pr_outer.pack(fill="both", expand=True)
+
+    _proc_poll_id = [None]
+
+    def _build_proc_tab():
+        for w in pr_inner.winfo_children():
+            w.destroy()
+
+        hdr = tk.Frame(pr_inner, bg=_T["bg"])
+        hdr.pack(fill="x", padx=14, pady=(14, 4))
+        count = len(state.process_log)
+        tk.Label(hdr, text=f"Activity  ({count})",
+                 bg=_T["bg"], fg=_T["fg"],
+                 font=("Segoe UI", 11, "bold")).pack(side="left")
+        clr = tk.Label(hdr, text="Clear All",
+                       bg=_T["bg"], fg=_T["muted"],
+                       font=("Segoe UI", 9), cursor="hand2")
+        clr.pack(side="right")
+
+        def _clear(e):
+            state.process_log.clear()
+            _build_proc_tab()
+        clr.bind("<Button-1>", _clear)
+
+        if not state.process_log:
+            tk.Label(pr_inner,
+                     text="No activity yet — press Alt+A anywhere to get started.",
+                     bg=_T["bg"], fg=_T["muted"],
+                     font=("Segoe UI", 9)).pack(pady=40)
+            return
+
+        _STATUS_COLORS = {"done": "#4a8c5c", "error": "#E05C5C", "running": "#b89440"}
+        _ACTION_LABELS = {
+            "summarize": "Summarize", "reply": "Reply", "followup": "Follow Up",
+            "explain": "Explain", "fix": "Fix", "rephrase": "Rephrase",
+            "form": "Form Fill", "custom": "Custom",
+        }
+
+        for entry in reversed(state.process_log):
+            c = card(pr_inner, pady=10)
+
+            # Top row: status dot + action + app + time + duration
+            top = tk.Frame(c, bg=_T["panel"])
+            top.pack(fill="x")
+
+            dot_col = _STATUS_COLORS.get(entry["status"], _T["muted"])
+            tk.Label(top, text="●", bg=_T["panel"], fg=dot_col,
+                     font=("Segoe UI", 10)).pack(side="left", padx=(0, 8))
+
+            action_lbl = _ACTION_LABELS.get(entry["action"], entry["action"].title())
+            tk.Label(top, text=action_lbl, bg=_T["panel"], fg=_T["fg"],
+                     font=("Segoe UI", 9, "bold")).pack(side="left")
+
+            if entry.get("app"):
+                tk.Label(top, text=f"  ·  {entry['app']}", bg=_T["panel"], fg=_T["muted"],
+                         font=("Segoe UI", 9)).pack(side="left")
+
+            # Right side: time + duration
+            meta_parts = [entry["timestamp"]]
+            if entry["duration_ms"] > 0:
+                dur = entry["duration_ms"]
+                meta_parts.append(f"{dur/1000:.1f}s" if dur < 60000 else f"{dur//60000}m")
+            if entry.get("provider") and entry["provider"] != "none":
+                meta_parts.append(entry["provider"])
+            tk.Label(top, text="  ·  ".join(meta_parts),
+                     bg=_T["panel"], fg=_T["muted"],
+                     font=("Segoe UI", 8)).pack(side="right")
+
+            # Input snippet
+            inp = entry.get("input", "").strip().replace("\n", " ")
+            if inp:
+                tk.Label(c, text=inp[:120] + ("…" if len(inp) > 120 else ""),
+                         bg=_T["panel"], fg=_T["dim"],
+                         font=("Segoe UI", 8), anchor="w",
+                         wraplength=580, justify="left").pack(anchor="w", pady=(4, 0))
+
+            # Output snippet
+            out = entry.get("output", "").strip().replace("\n", " ")
+            if out:
+                tk.Label(c, text=out[:160] + ("…" if len(out) > 160 else ""),
+                         bg=_T["panel"], fg=_T["fg"],
+                         font=("Segoe UI", 9), anchor="w",
+                         wraplength=580, justify="left").pack(anchor="w", pady=(2, 0))
+            elif entry["status"] == "running":
+                tk.Label(c, text="Generating…", bg=_T["panel"], fg=_T["muted"],
+                         font=("Segoe UI", 8, "italic")).pack(anchor="w", pady=(2, 0))
+            elif entry["status"] == "error":
+                tk.Label(c, text="Failed to generate response.",
+                         bg=_T["panel"], fg=_T["danger"],
+                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+
+    def _proc_poll():
+        if not win.winfo_exists():
+            return
+        # Only rebuild when the processes tab is active and log changed
+        if _active[0] == "processes":
+            _build_proc_tab()
+        _proc_poll_id[0] = win.after(2000, _proc_poll)
+
+    _build_proc_tab()
+    _proc_poll_id[0] = win.after(2000, _proc_poll)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # MARKETS

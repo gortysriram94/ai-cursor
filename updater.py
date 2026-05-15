@@ -74,6 +74,11 @@ def download_and_apply(url: str, version: str,
 def apply_update(installer: Path, root=None):
     """Quit the app, then run the installer silently. The installer relaunches the app."""
     import sys
+    try:
+        from storage import save_just_updated_flag
+        save_just_updated_flag(str(installer.stem))  # version from filename
+    except Exception:
+        pass
     # PowerShell waits 2s for the app to exit before launching the installer
     cmd = f"Start-Sleep 2; Start-Process '{installer}' -ArgumentList '/SILENT'"
     subprocess.Popen(
