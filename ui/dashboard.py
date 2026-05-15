@@ -402,11 +402,14 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     _su_mdl_body = tk.Frame(su_inner, bg=_T["bg"])
     _su_mdl_body.pack(fill="x")
 
-    def _refresh_su_models():
-        if not win.winfo_exists():
-            return
+    # Cards are built once; only status text, progress bar, and button
+    # visibility are updated in-place — no destroy/recreate, no flicker.
+    _su_cards: dict = {}   # mid → widget refs
+
+    def _build_su_model_cards():
         for w in _su_mdl_body.winfo_children():
             w.destroy()
+        _su_cards.clear()
 
         from models import MODELS, BADGE_COLORS
         from storage import load_active_model
@@ -417,15 +420,12 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         shown = [m for m in MODELS if m["category"] in ("main", "vision")]
 
         for m in shown:
-            mid        = m["id"]
-            dl_s       = state.model_dl_status.get(mid, {})
-            downloaded = bool(dl_s.get("done"))
-            error      = bool(dl_s.get("error"))
-            dlding     = bool(dl_s) and not downloaded and not error and not dl_s.get("stopped") and not dl_s.get("queued")
-            is_active  = (mid == active_id)
+            mid = m["id"]
+            is_active = (mid == active_id)
 
             c = card(_su_mdl_body, pady=10)
 
+            # Static: name + badge + active pill
             top = tk.Frame(c, bg=_T["panel"])
             top.pack(fill="x")
             tk.Label(top, text=m["name"], bg=_T["panel"], fg=_T["fg"],
@@ -435,125 +435,102 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                          bg=BADGE_COLORS.get(m["badge_col"], _T["panel2"]), fg="#fff",
                          font=("Segoe UI", 7, "bold"),
                          padx=5, pady=1).pack(side="left", padx=(6, 0))
+            active_pill = tk.Label(top, text="● Active", bg=_T["panel"], fg=_T["accent"],
+                                   font=("Segoe UI", 8, "bold"))
             if is_active:
-                tk.Label(top, text="● Active", bg=_T["panel"], fg=_T["accent"],
-                         font=("Segoe UI", 8, "bold")).pack(side="right")
+                active_pill.pack(side="right")
 
+            # Static: tagline + specs
             tk.Label(c, text=m["tagline"], bg=_T["panel"], fg=_T["dim"],
                      font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
-            tk.Label(c,
-                     text=f"{m['size_gb']} GB  ·  {m['ram_gb']} GB RAM  ·  {m['speed']}",
+            tk.Label(c, text=f"{m['size_gb']} GB  ·  {m['ram_gb']} GB RAM  ·  {m['speed']}",
                      bg=_T["panel"], fg=_T["muted"],
                      font=("Segoe UI", 8)).pack(anchor="w", pady=(1, 0))
 
-            # Download progress bar
-            if dlding:
-                pct = dl_s.get("pct", 0)
-                bar = tk.Frame(c, bg=_T["panel2"], height=3)
-                bar.pack(fill="x", pady=(6, 2))
-                bar.pack_propagate(False)
-                if pct > 0:
-                    tk.Frame(bar, bg=_T["accent"], height=3).place(
-                        x=0, y=0, relwidth=min(1.0, pct / 100), relheight=1)
-                spd = dl_s.get("speed_mbs", 0)
-                eta = dl_s.get("eta_secs", 0)
-                txt = dl_s.get("text", "Downloading…")
-                if spd > 0:
-                    m2, s2 = eta // 60, eta % 60
-                    txt = f"{pct}%  ·  {spd} MB/s  ·  ~{m2}m {s2}s" if m2 else f"{pct}%  ·  {spd} MB/s  ·  ~{s2}s"
-                tk.Label(c, text=txt, bg=_T["panel"], fg=_T["dim"],
-                         font=("Segoe UI", 8)).pack(anchor="w")
-            # Status line
-            if m.get("bundled") and downloaded:
-                tk.Label(c, text="● Pre-installed", bg=_T["panel"], fg="#4a8c5c",
-                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
-            elif downloaded:
-                col = "#4a8c5c" if is_active else _T["muted"]
-                tk.Label(c, text="● Available" if is_active else "● Downloaded",
-                         bg=_T["panel"], fg=col,
-                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
-            elif error:
-                tk.Label(c, text=f"✗ {dl_s.get('text', 'Download failed')}",
-                         bg=_T["panel"], fg=_T["danger"],
-                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
-            elif dl_s.get("stopped"):
-                tk.Label(c, text="⊘ Stopped", bg=_T["panel"], fg=_T["muted"],
-                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
-            elif dl_s.get("queued"):
-                tk.Label(c, text="◌ Queued", bg=_T["panel"], fg=_T["muted"],
-                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
-            else:
-                tk.Label(c, text="Not downloaded", bg=_T["panel"], fg=_T["muted"],
-                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+            # Dynamic: progress bar (hidden until downloading)
+            bar_track = tk.Frame(c, bg=_T["panel2"], height=3)
+            bar_track.pack_propagate(False)
+            bar_fill = tk.Frame(bar_track, bg=_T["accent"], height=3)
+            bar_fill.place(x=0, y=0, relwidth=0, relheight=1)
 
-            # Action buttons
-            a_row = tk.Frame(c, bg=_T["panel"])
-            a_row.pack(anchor="e", pady=(6, 0))
+            # Dynamic: status label
+            status_lbl = tk.Label(c, text="", bg=_T["panel"], fg=_T["muted"],
+                                  font=("Segoe UI", 8))
+            status_lbl.pack(anchor="w", pady=(2, 0))
 
-            if dlding:
-                def _stop_dl(m_id=mid):
-                    from ai import cancel_download
-                    cancel_download(m_id)
-                    win.after(300, _refresh_su_models)
-                sb = tk.Label(a_row, text="Stop", bg=_T["panel2"], fg=_T["danger"],
+            # Dynamic: button row — all buttons pre-created, shown/hidden as needed
+            btn_row = tk.Frame(c, bg=_T["panel"])
+            btn_row.pack(anchor="e", pady=(6, 0))
+
+            def _dl(m_id=mid):
+                state.model_dl_status.pop(m_id, None)
+                threading.Thread(target=download_model_bg, args=(m_id,), daemon=True).start()
+
+            def _stop(m_id=mid):
+                from ai import cancel_download
+                cancel_download(m_id)
+
+            def _dequeue(m_id=mid):
+                state.model_dl_status[m_id] = {"stopped": True, "text": "Stopped"}
+
+            def _activate(m_id=mid):
+                set_active_ollama_model(m_id)
+                _do_refresh_status()
+                # Update active pills without rebuilding
+                for refs in _su_cards.values():
+                    refs["active_pill"].pack_forget()
+                _su_cards[m_id]["active_pill"].pack(side="right")
+                _poll_su_models()
+
+            def _del(m_id=mid):
+                threading.Thread(
+                    target=lambda: (
+                        delete_model(m_id),
+                        win.after(0, _build_su_model_cards) if win.winfo_exists() else None,
+                    ), daemon=True).start()
+
+            dl_btn = tk.Label(btn_row, text="Download",
+                              bg=_T["accent"], fg="#1A1611",
                               font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
-                sb.pack(side="left")
-                sb.bind("<Button-1>", lambda e, f=_stop_dl: f())
+            dl_btn.bind("<Button-1>", lambda e, f=_dl: f())
 
-            elif dl_s.get("queued") and not downloaded:
-                def _dequeue(m_id=mid):
-                    state.model_dl_status[m_id] = {"stopped": True, "text": "Stopped"}
-                    _refresh_su_models()
-                sb = tk.Label(a_row, text="Remove from queue", bg=_T["panel2"], fg=_T["muted"],
-                              font=("Segoe UI", 8), padx=10, pady=4, cursor="hand2")
-                sb.pack(side="left")
-                sb.bind("<Button-1>", lambda e, f=_dequeue: f())
+            stop_btn = tk.Label(btn_row, text="Stop",
+                                bg=_T["panel2"], fg=_T["danger"],
+                                font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
+            stop_btn.bind("<Button-1>", lambda e, f=_stop: f())
 
-            elif not downloaded and not dlding:
-                def _dl(m_id=mid):
-                    state.model_dl_status.pop(m_id, None)  # clear any stopped state
-                    threading.Thread(target=download_model_bg, args=(m_id,),
-                                     daemon=True).start()
-                    win.after(800, _refresh_su_models)
-                b = tk.Label(a_row, text="Download", bg=_T["accent"], fg="#1A1611",
-                             font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
-                b.pack(side="left")
-                b.bind("<Button-1>", lambda e, f=_dl: f())
+            dequeue_btn = tk.Label(btn_row, text="Remove from queue",
+                                   bg=_T["panel2"], fg=_T["muted"],
+                                   font=("Segoe UI", 8), padx=10, pady=4, cursor="hand2")
+            dequeue_btn.bind("<Button-1>", lambda e, f=_dequeue: f())
 
-            if downloaded and not is_active and m["category"] == "main":
-                def _activate(m_id=mid):
-                    set_active_ollama_model(m_id)
-                    _refresh_su_models()
-                    _do_refresh_status()
-                b = tk.Label(a_row, text="Set Active", bg=_T["panel2"], fg=_T["accent"],
-                             font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
-                b.pack(side="left", padx=(0 if not a_row.winfo_children() else 6, 6))
-                b.bind("<Button-1>", lambda e, f=_activate: f())
+            activate_btn = tk.Label(btn_row, text="Set Active",
+                                    bg=_T["panel2"], fg=_T["accent"],
+                                    font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
+            activate_btn.bind("<Button-1>", lambda e, f=_activate: f())
 
-            if downloaded:
-                def _del(m_id=mid):
-                    threading.Thread(
-                        target=lambda: (
-                            delete_model(m_id),
-                            win.after(0, _refresh_su_models) if win.winfo_exists() else None,
-                        ), daemon=True).start()
-                db = tk.Label(a_row, text="Delete", bg=_T["panel2"], fg=_T["danger"],
-                              font=("Segoe UI", 8), padx=8, pady=4, cursor="hand2")
-                db.pack(side="left")
-                db.bind("<Button-1>", lambda e, f=_del: f())
+            del_btn = tk.Label(btn_row, text="Delete",
+                               bg=_T["panel2"], fg=_T["danger"],
+                               font=("Segoe UI", 8), padx=8, pady=4, cursor="hand2")
+            del_btn.bind("<Button-1>", lambda e, f=_del: f())
 
-        # Auto-refresh while any download is actively in progress (not stopped/queued)
-        if any(s and not s.get("done") and not s.get("error")
-               and not s.get("stopped") and not s.get("queued")
-               for s in state.model_dl_status.values()):
-            win.after(1000, _refresh_su_models)
+            _su_cards[mid] = {
+                "m": m, "active_pill": active_pill,
+                "bar_track": bar_track, "bar_fill": bar_fill,
+                "status_lbl": status_lbl,
+                "dl_btn": dl_btn, "stop_btn": stop_btn,
+                "dequeue_btn": dequeue_btn, "activate_btn": activate_btn,
+                "del_btn": del_btn,
+                "last_state": None,
+            }
 
-        # Background Ollama presence check for already-downloaded models
+        # One-time background Ollama presence check
         def _bg_check():
             import http.client as _hc, json as _js
             from concurrent.futures import ThreadPoolExecutor, as_completed
             from config import OLLAMA_PORT
-            unknown = [m["id"] for m in MODELS
+            from models import MODELS as _ALL
+            unknown = [m["id"] for m in _ALL
                        if not state.model_dl_status.get(m["id"], {}).get("done")]
             if not unknown:
                 return
@@ -578,18 +555,106 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                         try:
                             mid, found = f.result()
                             if found:
-                                state.model_dl_status[mid] = {"done": True, "pct": 100, "text": "Ready ✓"}
+                                state.model_dl_status[mid] = {
+                                    "done": True, "pct": 100, "text": "Ready ✓"}
                                 changed = True
                         except Exception:
                             pass
                 except TimeoutError:
                     pass
             if changed and win.winfo_exists():
-                win.after(0, _refresh_su_models)
+                win.after(0, _poll_su_models)
 
         threading.Thread(target=_bg_check, daemon=True).start()
+        win.after(100, _poll_su_models)
 
-    _refresh_su_models()
+    def _fmt_dl_eta(secs: int) -> str:
+        if secs <= 0: return ""
+        if secs < 60: return f"~{secs}s"
+        m = secs // 60
+        return f"~{m}m" if m < 60 else f"~{m // 60}h {m % 60}m"
+
+    def _poll_su_models():
+        if not win.winfo_exists():
+            return
+        from storage import load_active_model
+        active_id = load_active_model()
+        any_active = False
+
+        for mid, refs in _su_cards.items():
+            m   = refs["m"]
+            dl_s = state.model_dl_status.get(mid, {})
+            done    = bool(dl_s.get("done"))
+            error   = bool(dl_s.get("error"))
+            stopped = bool(dl_s.get("stopped"))
+            queued  = bool(dl_s.get("queued")) and not done
+            dlding  = bool(dl_s) and not done and not error and not stopped and not queued
+            is_active = (mid == active_id)
+
+            if dlding:
+                any_active = True
+
+            # State key — only update buttons when category changes
+            new_state = ("done" if done else "error" if error else "stopped" if stopped
+                         else "queued" if queued else "downloading" if dlding else "none")
+
+            # Progress bar
+            if dlding:
+                if not refs["bar_track"].winfo_ismapped():
+                    refs["bar_track"].pack(fill="x", pady=(6, 2))
+                refs["bar_fill"].place(relwidth=min(1.0, dl_s.get("pct", 0) / 100))
+            else:
+                refs["bar_track"].pack_forget()
+
+            # Status label (always update — text changes during download)
+            if m.get("bundled") and done:
+                refs["status_lbl"].configure(text="● Pre-installed", fg="#4a8c5c")
+            elif done:
+                refs["status_lbl"].configure(
+                    text="● Available" if is_active else "● Downloaded",
+                    fg="#4a8c5c" if is_active else _T["muted"])
+            elif error:
+                refs["status_lbl"].configure(
+                    text=f"✗ {dl_s.get('text', 'Download failed')}", fg=_T["danger"])
+            elif stopped:
+                refs["status_lbl"].configure(text="⊘ Stopped", fg=_T["muted"])
+            elif queued:
+                refs["status_lbl"].configure(text="◌ Queued", fg=_T["muted"])
+            elif dlding:
+                pct = dl_s.get("pct", 0)
+                spd = dl_s.get("speed_mbs", 0)
+                eta = dl_s.get("eta_secs", 0)
+                parts = []
+                if pct > 0: parts.append(f"{pct}%")
+                if spd > 0: parts.append(f"{spd} MB/s")
+                e = _fmt_dl_eta(eta)
+                if e: parts.append(e)
+                refs["status_lbl"].configure(
+                    text="  ·  ".join(parts) if parts else "Starting…", fg=_T["dim"])
+            else:
+                refs["status_lbl"].configure(text="Not downloaded", fg=_T["muted"])
+
+            # Buttons — only repack when state category changes
+            if refs["last_state"] != new_state:
+                refs["last_state"] = new_state
+                for b in (refs["dl_btn"], refs["stop_btn"], refs["dequeue_btn"],
+                          refs["activate_btn"], refs["del_btn"]):
+                    b.pack_forget()
+                if dlding:
+                    refs["stop_btn"].pack(side="left")
+                elif queued:
+                    refs["dequeue_btn"].pack(side="left")
+                elif not done:
+                    refs["dl_btn"].pack(side="left")
+                if done and not is_active and m["category"] == "main":
+                    refs["activate_btn"].pack(side="left", padx=(6, 6))
+                if done:
+                    refs["del_btn"].pack(side="left")
+
+        # Fast poll while downloading, slow poll when idle
+        win.after(800 if any_active else 3000, _poll_su_models)
+
+    _build_su_model_cards()
 
     # ── Hotkeys ───────────────────────────────────────────────────────────────
     section(su_inner, "Hotkeys")
