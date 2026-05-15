@@ -458,6 +458,23 @@ def call_ai_streaming(text: str, action: str, tone: str,
                       on_sources=None):
     import time as _t_proc
     from datetime import datetime as _dt
+
+    _t_start = _t_proc.time()
+    _ms = lambda: int((_t_proc.time() - _t_start) * 1000)
+
+    # ── Pipeline steps (shown in Processes tab node graph) ────────────────────
+    _steps = [
+        {"key": "input",   "name": "Input Capture",  "icon": "⊡", "status": "running",  "started_ms": 0, "duration_ms": 0, "detail": {}},
+        {"key": "context", "name": "Context",         "icon": "◉", "status": "pending",  "started_ms": 0, "duration_ms": 0, "detail": {}},
+        {"key": "vision",  "name": "Vision",          "icon": "◈", "status": "pending",  "started_ms": 0, "duration_ms": 0, "detail": {}},
+        {"key": "rag",     "name": "RAG Search",      "icon": "◫", "status": "pending",  "started_ms": 0, "duration_ms": 0, "detail": {}},
+        {"key": "prompt",  "name": "Prompt",          "icon": "⊞", "status": "pending",  "started_ms": 0, "duration_ms": 0, "detail": {}},
+        {"key": "llm",     "name": "LLM",             "icon": "✺", "status": "pending",  "started_ms": 0, "duration_ms": 0, "detail": {}},
+        {"key": "output",  "name": "Output",          "icon": "▶", "status": "pending",  "started_ms": 0, "duration_ms": 0, "detail": {}},
+    ]
+    def _step(k): return next((s for s in _steps if s["key"] == k), {})
+
+    # ── Process log entry ──────────────────────────────────────────────────────
     _proc_entry = {
         "id":          len(state.process_log),
         "timestamp":   _dt.now().strftime("%H:%M:%S"),
@@ -469,29 +486,109 @@ def call_ai_streaming(text: str, action: str, tone: str,
         "provider":    "",
         "duration_ms": 0,
         "status":      "running",
-        "_t0":         _t_proc.time(),
+        "_t0":         _t_start,
+        "steps":       _steps,
     }
     state.process_log.append(_proc_entry)
     if len(state.process_log) > 300:
         state.process_log.pop(0)
+
+    # ── Step 1: Input Capture (instant) ───────────────────────────────────────
+    _step("input").update({
+        "status": "done", "duration_ms": max(1, _ms()),
+        "detail": {
+            "Action":      action.replace("_", " ").title(),
+            "App":         _proc_entry["app"] or "Unknown",
+            "Text length": f"{len(text or '')} chars",
+            "Tone":        tone or "default",
+        }
+    })
+
+    # ── Step 2: Context ────────────────────────────────────────────────────────
+    ctx = _step("context")
+    ctx["started_ms"] = _ms()
+    ctx["status"] = "running"
+    if bundle:
+        ctx.update({
+            "status":      "done",
+            "duration_ms": max(1, _ms() - ctx["started_ms"]),
+            "detail": {
+                "App context":    getattr(bundle, "app_name", "") or "Unknown",
+                "Market":         getattr(bundle, "market", "") or "auto",
+                "Sections found": str(len(getattr(bundle, "sections", []))),
+                "Context type":   getattr(bundle, "context_type", "") or "generic",
+            }
+        })
+    else:
+        ctx.update({"status": "skipped", "duration_ms": 0,
+                    "detail": {"Status": "No context bundle available"}})
+
+    # ── Step 3: Vision (availability check only — text flow doesn't call vision) ─
+    vis = _step("vision")
+    vis["started_ms"] = _ms()
+    try:
+        from config import NVIDIA_API_KEY as _nvkey
+        if _nvkey:
+            vis.update({"status": "skipped", "duration_ms": 0,
+                        "detail": {"Status": "Cloud vision active", "Provider": "NVIDIA"}})
+        elif get_vision_api():
+            vis.update({"status": "skipped", "duration_ms": 0,
+                        "detail": {"Status": "Available (text-only call)", "Model": "llava-phi3"}})
+        else:
+            vis.update({"status": "skipped", "duration_ms": 0,
+                        "detail": {"Status": "Not installed", "Note": "Download from Setup tab"}})
+    except Exception:
+        vis.update({"status": "skipped", "duration_ms": 0, "detail": {"Status": "Unavailable"}})
+
+    # ── Token / timing tracking ────────────────────────────────────────────────
+    _token_count = [0]
+    _first_tok_t = [None]
 
     _orig_on_token = on_token
     _orig_on_done  = on_done
     _orig_on_error = on_error
 
     def on_token(tok):
+        _token_count[0] += 1
+        if _token_count[0] == 1:
+            _first_tok_t[0] = _t_proc.time()
         _proc_entry["output"] += tok
         _orig_on_token(tok)
 
     def on_done():
+        llm = _step("llm")
+        llm["status"] = "done"
+        llm_dur = max(1, _ms() - llm.get("started_ms", 0))
+        llm["duration_ms"] = llm_dur
+        ftok = (f"{(_first_tok_t[0] - _t_start - llm.get('started_ms', 0) / 1000):.1f}s"
+                if _first_tok_t[0] else "—")
+        speed = (f"~{int(_token_count[0] / max(0.1, llm_dur / 1000))} tok/s"
+                 if _token_count[0] > 0 else "—")
+        llm["detail"].update({
+            "Provider":         state.last_ai_provider,
+            "Tokens generated": str(_token_count[0]),
+            "First token":      ftok,
+            "Speed":            speed,
+        })
+        out = _step("output")
+        out.update({
+            "status": "done", "started_ms": _ms(), "duration_ms": 5,
+            "detail": {
+                "Characters": str(len(_proc_entry["output"])),
+                "Words":      str(len(_proc_entry["output"].split())),
+            }
+        })
         _proc_entry["status"]      = "done"
         _proc_entry["provider"]    = state.last_ai_provider
-        _proc_entry["duration_ms"] = int((_t_proc.time() - _proc_entry["_t0"]) * 1000)
+        _proc_entry["duration_ms"] = _ms()
         _orig_on_done()
 
     def on_error():
+        for s in _steps:
+            if s["status"] == "running":
+                s["status"] = "error"
         _proc_entry["status"]      = "error"
-        _proc_entry["duration_ms"] = int((_t_proc.time() - _proc_entry["_t0"]) * 1000)
+        _proc_entry["duration_ms"] = _ms()
         _orig_on_error()
 
     from prompts import build_prompt
@@ -518,11 +615,12 @@ def call_ai_streaming(text: str, action: str, tone: str,
             state.last_ai_latency_ms = int((time.monotonic() - _t0) * 1000)
             on_error()
 
-        # Retrieval phase — runs in its OWN thread so it cannot add frames to the
-        # streaming call stack. Inline retrieval + urllib3 + ThreadPoolExecutor
-        # combined with Ollama's urllib3 stack was pushing past Python's limit.
+        # ── Step 4: RAG retrieval ─────────────────────────────────────────────
+        rag = _step("rag")
+        rag["started_ms"] = _ms()
         active_bundle = bundle
         if active_bundle is not None and _retrieve_for_action is not None:
+            rag["status"] = "running"
             _docs_holder = [None]
             _done_event  = threading.Event()
 
@@ -536,34 +634,68 @@ def call_ai_streaming(text: str, action: str, tone: str,
                     _done_event.set()
 
             threading.Thread(target=_bg_retrieve, daemon=True).start()
-            _done_event.wait(timeout=10)   # max 10s; streaming proceeds regardless
+            _done_event.wait(timeout=10)
 
             docs = _docs_holder[0] or []
+            rag["status"]      = "done"
+            rag["duration_ms"] = max(1, _ms() - rag["started_ms"])
+            rag["detail"] = {
+                "Documents found": str(len(docs)),
+                "Timeout":         "10s max",
+                "Result":          "Retrieved" if docs else "No results",
+            }
             if docs:
+                try:
+                    srcs = list({getattr(d, "source", "") for d in docs if getattr(d, "source", "")})[:3]
+                    rag["detail"]["Sources"] = ", ".join(srcs) if srcs else "embedded"
+                except Exception:
+                    pass
                 active_bundle.retrieved_docs = docs
                 if on_sources:
-                    try:
-                        on_sources(docs)
-                    except Exception:
-                        pass
+                    try: on_sources(docs)
+                    except Exception: pass
+        else:
+            rag.update({"status": "skipped", "duration_ms": 0,
+                        "detail": {"Status": "RAG disabled or no bundle"}})
 
         if status_cb:
-            try:
-                status_cb("thinking…")
-            except Exception:
-                pass
+            try: status_cb("thinking…")
+            except Exception: pass
 
+        # ── Step 5: Prompt building ────────────────────────────────────────────
+        prom = _step("prompt")
+        prom["started_ms"] = _ms()
+        prom["status"] = "running"
         max_tokens = ACTION_MAX_TOKENS.get(action, _DEFAULT_MAX_TOKENS)
         prompt     = build_prompt(text, action, tone,
                                   custom_instruction=custom_instruction,
                                   bundle=active_bundle)
         log_prompt(action, prompt)
         messages = [{"role": "user", "content": prompt}]
+        prom.update({
+            "status":      "done",
+            "duration_ms": max(1, _ms() - prom["started_ms"]),
+            "detail": {
+                "Action":       action.replace("_", " ").title(),
+                "Prompt chars": str(len(prompt)),
+                "Est. tokens":  str(len(prompt) // 4),
+                "RAG injected": "Yes" if (active_bundle and getattr(active_bundle, "retrieved_docs", [])) else "No",
+                "Max output":   str(max_tokens) + " tokens",
+            }
+        })
 
-        # Launch streaming in its OWN fresh thread.
-        # _run() has already accumulated stack depth from retrieval, prompt building,
-        # etc. Spawning a new thread gives streaming a clean stack of ~5 frames
-        # before hitting urllib3, guaranteeing we never approach the recursion limit.
+        # ── Step 6: LLM streaming ─────────────────────────────────────────────
+        llm = _step("llm")
+        llm["started_ms"] = _ms()
+        llm["status"] = "running"
+        try:
+            from storage import load_active_model
+            from models import display_name as _dn
+            llm["detail"]["Model"] = _dn(load_active_model())
+        except Exception:
+            llm["detail"]["Model"] = "Unknown"
+
+        # Fresh thread keeps the call stack shallow (avoids recursion limit).
         threading.Thread(
             target=stream_with_fallback,
             args=(messages, max_tokens, on_token, _done, _err),

@@ -1147,11 +1147,260 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     pr_outer, pr_inner = scrollable(proc_tab)
     pr_outer.pack(fill="both", expand=True)
 
-    _proc_poll_id = [None]
+    _proc_poll_id  = [None]
+    _proc_count    = [0]
+    _proc_cards: dict = {}   # entry_id → {output_lbl, status_dot, dur_lbl}
+
+    # ── Node graph constants ──────────────────────────────────────────────────
+    _NC_W, _NC_H = 660, 134          # canvas size
+    _NW, _NH     = 70, 100           # node width / height
+    _NX0         = 16                # left margin
+    _NGAP        = 23                # gap between nodes
+    _NSTEP       = _NW + _NGAP      # 93px per node slot
+    _NY          = 14                # node top y
+    _WIRE_Y      = _NY + _NH // 2   # wire centre y = 64
+
+    _NODE_FILL    = {"done":"#1A2820","running":"#1E1A15","error":"#251515",
+                     "skipped":"#1A1611","pending":"#1E1A15"}
+    _NODE_OUTLINE = {"done":"#4a8c5c","running":"#b89440","error":"#E05C5C",
+                     "skipped":"#2A2520","pending":"#38332A"}
+    _NODE_TXT     = {"done":"#9DE8B0","running":"#F0D070","error":"#FF9090",
+                     "skipped":"#4A4540","pending":"#4A4540"}
+    _STATUS_LABELS = {"done":"✓ Done","running":"● Running","error":"✗ Error",
+                      "skipped":"— Skipped","pending":"○ Pending"}
+    _STATUS_COLORS = {"done":"#4a8c5c","error":"#E05C5C","running":"#b89440"}
+    _ACTION_LABELS = {
+        "summarize":"Summarize","reply":"Reply","followup":"Follow Up",
+        "explain":"Explain","fix":"Fix","rephrase":"Rephrase",
+        "form":"Form Fill","custom":"Custom",
+    }
+
+    def _node_cx(i): return _NX0 + i * _NSTEP + _NW // 2
+    def _node_nx(i): return _NX0 + i * _NSTEP
+
+    def _draw_proc_canvas(canvas: tk.Canvas, steps: list, anim_t: list,
+                          detail_frame: tk.Frame, detail_shown: list):
+        """Draw static node graph. Returns list of node tag names."""
+        canvas.delete("all")
+        for i, step in enumerate(steps):
+            cx   = _node_cx(i)
+            nx   = _node_nx(i)
+            fill = _NODE_FILL.get(step["status"], "#1E1A15")
+            outl = _NODE_OUTLINE.get(step["status"], "#38332A")
+            txt  = _NODE_TXT.get(step["status"], _T["muted"])
+            tag  = f"n{i}"
+
+            # Node rectangle
+            canvas.create_rectangle(nx, _NY, nx + _NW, _NY + _NH,
+                                     fill=fill, outline=outl, width=1, tags=(tag, "node"))
+            # Icon
+            canvas.create_text(cx, _NY + 18, text=step["icon"],
+                                fill=outl, font=("Segoe UI", 13), tags=(tag, "node"))
+            # Name
+            canvas.create_text(cx, _NY + 38, text=step["name"],
+                                fill=_T["fg"], font=("Segoe UI", 7, "bold"),
+                                tags=(tag, "node"))
+            # Status
+            canvas.create_text(cx, _NY + 56,
+                                text=_STATUS_LABELS.get(step["status"], step["status"]),
+                                fill=txt, font=("Segoe UI", 6), tags=(tag, "node"))
+            # Duration
+            dur_ms = step.get("duration_ms", 0)
+            if dur_ms > 0:
+                dur_txt = (f"{dur_ms}ms" if dur_ms < 1000
+                           else f"{dur_ms/1000:.1f}s")
+                canvas.create_text(cx, _NY + 70, text=dur_txt,
+                                    fill=_T["muted"], font=("Segoe UI", 6),
+                                    tags=(tag, "node"))
+            # Wire to next node
+            if i < len(steps) - 1:
+                wx1 = nx + _NW
+                wx2 = wx1 + _NGAP
+                wc = _NODE_OUTLINE.get(step["status"], "#2A2520")
+                canvas.create_line(wx1, _WIRE_Y, wx2, _WIRE_Y,
+                                    fill=wc, width=2, tags=f"wire{i}")
+
+            # Click → toggle detail panel
+            def _on_node_click(e, idx=i, st=step):
+                if detail_shown[0] == idx:
+                    detail_frame.pack_forget()
+                    detail_shown[0] = None
+                else:
+                    for w in detail_frame.winfo_children():
+                        w.destroy()
+                    hdr_txt = f"{st['icon']}  {st['name']}  ·  {_STATUS_LABELS.get(st['status'], st['status'])}"
+                    if st.get("duration_ms", 0) > 0:
+                        dur = st["duration_ms"]
+                        hdr_txt += f"  ·  {dur}ms" if dur < 1000 else f"  ·  {dur/1000:.1f}s"
+                    tk.Label(detail_frame, text=hdr_txt,
+                             bg=_T["panel2"], fg=_NODE_TXT.get(st["status"], _T["fg"]),
+                             font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 6))
+                    det = st.get("detail", {})
+                    if det:
+                        for k, v in det.items():
+                            row = tk.Frame(detail_frame, bg=_T["panel2"])
+                            row.pack(fill="x", pady=1)
+                            tk.Label(row, text=k + ":", bg=_T["panel2"], fg=_T["muted"],
+                                     font=("Segoe UI", 8), width=16, anchor="w").pack(side="left")
+                            tk.Label(row, text=str(v), bg=_T["panel2"], fg=_T["fg"],
+                                     font=("Segoe UI", 8), anchor="w",
+                                     wraplength=420, justify="left").pack(side="left")
+                    else:
+                        tk.Label(detail_frame, text="No detail available yet.",
+                                 bg=_T["panel2"], fg=_T["muted"],
+                                 font=("Segoe UI", 8, "italic")).pack(anchor="w")
+                    if not detail_frame.winfo_ismapped():
+                        detail_frame.pack(fill="x", padx=2, pady=(4, 0))
+                    detail_shown[0] = idx
+
+            canvas.tag_bind(tag, "<Button-1>", _on_node_click)
+            canvas.tag_bind(tag, "<Enter>",
+                             lambda e, t=tag: canvas.itemconfig(t, fill=_NODE_FILL.get(
+                                 steps[int(t[1:])]["status"], "#1E1A15")))
+
+    def _start_canvas_anim(canvas: tk.Canvas, steps: list):
+        """Animate dots along wires. Runs until canvas is destroyed."""
+        anim_t = [0]
+        pulse  = [0]
+
+        def _tick():
+            if not canvas.winfo_exists():
+                return
+            anim_t[0] += 1
+            pulse[0]   = (pulse[0] + 1) % 30
+
+            canvas.delete("dot")
+            canvas.delete("pulse_border")
+
+            for i, step in enumerate(steps):
+                # Pulsing border for running node
+                if step["status"] == "running":
+                    alpha = abs(pulse[0] - 15) / 15.0   # 0→1→0
+                    r = int(0xb8 * alpha + 0x38 * (1 - alpha))
+                    g = int(0x94 * alpha + 0x33 * (1 - alpha))
+                    b = int(0x40 * alpha + 0x2A * (1 - alpha))
+                    pc = f"#{r:02x}{g:02x}{b:02x}"
+                    nx = _node_nx(i)
+                    canvas.create_rectangle(nx, _NY, nx + _NW, _NY + _NH,
+                                             fill="", outline=pc, width=2,
+                                             tags="pulse_border")
+
+                # Moving dot along wire
+                if i < len(steps) - 1 and step["status"] in ("done", "running"):
+                    wx1 = _node_nx(i) + _NW
+                    wx2 = wx1 + _NGAP
+                    frac = (anim_t[0] % 24) / 24.0
+                    dx = wx1 + frac * (wx2 - wx1)
+                    dc = "#4a8c5c" if step["status"] == "done" else "#b89440"
+                    canvas.create_oval(dx - 3, _WIRE_Y - 3, dx + 3, _WIRE_Y + 3,
+                                        fill=dc, outline="", tags="dot")
+
+            canvas.after(50, _tick)
+
+        canvas.after(50, _tick)
+
+    def _make_proc_card(entry: dict):
+        """Build one process card (called once per entry)."""
+        steps = entry.get("steps", [])
+
+        c = card(pr_inner, pady=10)
+        _proc_cards[entry["id"]] = {"card": c}
+
+        # ── Header row ────────────────────────────────────────────────────────
+        top = tk.Frame(c, bg=_T["panel"])
+        top.pack(fill="x")
+
+        dot_col = _STATUS_COLORS.get(entry["status"], _T["muted"])
+        dot_lbl = tk.Label(top, text="●", bg=_T["panel"], fg=dot_col,
+                           font=("Segoe UI", 10))
+        dot_lbl.pack(side="left", padx=(0, 8))
+        _proc_cards[entry["id"]]["dot"] = dot_lbl
+
+        action_txt = _ACTION_LABELS.get(entry["action"], entry["action"].title())
+        tk.Label(top, text=action_txt, bg=_T["panel"], fg=_T["fg"],
+                 font=("Segoe UI", 9, "bold")).pack(side="left")
+        if entry.get("app"):
+            tk.Label(top, text=f"  ·  {entry['app']}", bg=_T["panel"], fg=_T["muted"],
+                     font=("Segoe UI", 9)).pack(side="left")
+
+        meta_parts = [entry["timestamp"]]
+        dur = entry.get("duration_ms", 0)
+        if dur > 0:
+            meta_parts.append(f"{dur/1000:.1f}s" if dur < 60000 else f"{dur//60000}m")
+        if entry.get("provider") and entry["provider"] != "none":
+            meta_parts.append(entry["provider"])
+        dur_lbl = tk.Label(top, text="  ·  ".join(meta_parts),
+                           bg=_T["panel"], fg=_T["muted"], font=("Segoe UI", 8))
+        dur_lbl.pack(side="right")
+        _proc_cards[entry["id"]]["dur_lbl"] = dur_lbl
+
+        # ── Input snippet ─────────────────────────────────────────────────────
+        inp = entry.get("input", "").strip().replace("\n", " ")
+        if inp:
+            tk.Label(c, text=inp[:120] + ("…" if len(inp) > 120 else ""),
+                     bg=_T["panel"], fg=_T["dim"], font=("Segoe UI", 8),
+                     anchor="w", wraplength=580, justify="left").pack(anchor="w", pady=(4, 0))
+
+        # ── Output snippet (updatable) ────────────────────────────────────────
+        out_txt = entry.get("output", "").strip().replace("\n", " ")
+        out_lbl = tk.Label(c, bg=_T["panel"], fg=_T["fg"], font=("Segoe UI", 9),
+                           anchor="w", wraplength=580, justify="left")
+        if out_txt:
+            out_lbl.configure(text=out_txt[:160] + ("…" if len(out_txt) > 160 else ""))
+            out_lbl.pack(anchor="w", pady=(2, 0))
+        elif entry["status"] == "running":
+            out_lbl.configure(text="Generating…", fg=_T["muted"],
+                              font=("Segoe UI", 8, "italic"))
+            out_lbl.pack(anchor="w", pady=(2, 0))
+        elif entry["status"] == "error":
+            out_lbl.configure(text="Failed to generate response.", fg=_T["danger"],
+                              font=("Segoe UI", 8))
+            out_lbl.pack(anchor="w", pady=(2, 0))
+        _proc_cards[entry["id"]]["out_lbl"] = out_lbl
+
+        # ── Pipeline toggle ───────────────────────────────────────────────────
+        tog_row = tk.Frame(c, bg=_T["panel"])
+        tog_row.pack(fill="x", pady=(8, 0))
+        tk.Frame(tog_row, bg=_T["border"], height=1).pack(fill="x", side="left",
+                                                           expand=True, pady=6)
+        tog_btn = tk.Label(tog_row, text="▾  Pipeline",
+                           bg=_T["panel"], fg=_T["muted"],
+                           font=("Segoe UI", 7, "bold"), cursor="hand2", padx=8)
+        tog_btn.pack(side="left")
+        tk.Frame(tog_row, bg=_T["border"], height=1).pack(fill="x", side="left",
+                                                           expand=True, pady=6)
+
+        # ── Expandable pipeline canvas ────────────────────────────────────────
+        expand_frame = tk.Frame(c, bg=_T["panel"])
+        expand_open  = [False]
+        detail_shown = [None]   # index of selected node
+
+        detail_frame = tk.Frame(expand_frame, bg=_T["panel2"], padx=14, pady=10)
+
+        def _toggle_expand(e=None):
+            if expand_open[0]:
+                expand_frame.pack_forget()
+                tog_btn.configure(text="▾  Pipeline")
+            else:
+                expand_frame.pack(fill="x", pady=(4, 0))
+                tog_btn.configure(text="▴  Pipeline")
+                # Build canvas only on first open
+                if not expand_frame.winfo_children() or not any(
+                        isinstance(w, tk.Canvas) for w in expand_frame.winfo_children()):
+                    cv = tk.Canvas(expand_frame, bg=_T["bg"], width=_NC_W, height=_NC_H,
+                                   highlightthickness=0)
+                    cv.pack(padx=0, pady=(6, 0))
+                    _draw_proc_canvas(cv, steps, [0], detail_frame, detail_shown)
+                    _start_canvas_anim(cv, steps)
+            expand_open[0] = not expand_open[0]
+
+        tog_btn.bind("<Button-1>", _toggle_expand)
+        tog_row.bind("<Button-1>", _toggle_expand)
 
     def _build_proc_tab():
         for w in pr_inner.winfo_children():
             w.destroy()
+        _proc_cards.clear()
 
         hdr = tk.Frame(pr_inner, bg=_T["bg"])
         hdr.pack(fill="x", padx=14, pady=(14, 4))
@@ -1159,13 +1408,13 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         tk.Label(hdr, text=f"Activity  ({count})",
                  bg=_T["bg"], fg=_T["fg"],
                  font=("Segoe UI", 11, "bold")).pack(side="left")
-        clr = tk.Label(hdr, text="Clear All",
-                       bg=_T["bg"], fg=_T["muted"],
+        clr = tk.Label(hdr, text="Clear All", bg=_T["bg"], fg=_T["muted"],
                        font=("Segoe UI", 9), cursor="hand2")
         clr.pack(side="right")
 
         def _clear(e):
             state.process_log.clear()
+            _proc_count[0] = 0
             _build_proc_tab()
         clr.bind("<Button-1>", _clear)
 
@@ -1174,78 +1423,61 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                      text="No activity yet — press Alt+A anywhere to get started.",
                      bg=_T["bg"], fg=_T["muted"],
                      font=("Segoe UI", 9)).pack(pady=40)
+            _proc_count[0] = 0
             return
 
-        _STATUS_COLORS = {"done": "#4a8c5c", "error": "#E05C5C", "running": "#b89440"}
-        _ACTION_LABELS = {
-            "summarize": "Summarize", "reply": "Reply", "followup": "Follow Up",
-            "explain": "Explain", "fix": "Fix", "rephrase": "Rephrase",
-            "form": "Form Fill", "custom": "Custom",
-        }
-
         for entry in reversed(state.process_log):
-            c = card(pr_inner, pady=10)
+            _make_proc_card(entry)
 
-            # Top row: status dot + action + app + time + duration
-            top = tk.Frame(c, bg=_T["panel"])
-            top.pack(fill="x")
+        _proc_count[0] = len(state.process_log)
 
-            dot_col = _STATUS_COLORS.get(entry["status"], _T["muted"])
-            tk.Label(top, text="●", bg=_T["panel"], fg=dot_col,
-                     font=("Segoe UI", 10)).pack(side="left", padx=(0, 8))
-
-            action_lbl = _ACTION_LABELS.get(entry["action"], entry["action"].title())
-            tk.Label(top, text=action_lbl, bg=_T["panel"], fg=_T["fg"],
-                     font=("Segoe UI", 9, "bold")).pack(side="left")
-
-            if entry.get("app"):
-                tk.Label(top, text=f"  ·  {entry['app']}", bg=_T["panel"], fg=_T["muted"],
-                         font=("Segoe UI", 9)).pack(side="left")
-
-            # Right side: time + duration
-            meta_parts = [entry["timestamp"]]
-            if entry["duration_ms"] > 0:
+    def _update_running_cards():
+        """Update status/output text for in-flight entries without rebuilding."""
+        for entry in state.process_log:
+            eid = entry["id"]
+            if eid not in _proc_cards:
+                continue
+            refs = _proc_cards[eid]
+            # Status dot
+            if "dot" in refs:
+                refs["dot"].configure(
+                    fg=_STATUS_COLORS.get(entry["status"], _T["muted"]))
+            # Duration label
+            if "dur_lbl" in refs and entry["duration_ms"] > 0:
                 dur = entry["duration_ms"]
-                meta_parts.append(f"{dur/1000:.1f}s" if dur < 60000 else f"{dur//60000}m")
-            if entry.get("provider") and entry["provider"] != "none":
-                meta_parts.append(entry["provider"])
-            tk.Label(top, text="  ·  ".join(meta_parts),
-                     bg=_T["panel"], fg=_T["muted"],
-                     font=("Segoe UI", 8)).pack(side="right")
-
-            # Input snippet
-            inp = entry.get("input", "").strip().replace("\n", " ")
-            if inp:
-                tk.Label(c, text=inp[:120] + ("…" if len(inp) > 120 else ""),
-                         bg=_T["panel"], fg=_T["dim"],
-                         font=("Segoe UI", 8), anchor="w",
-                         wraplength=580, justify="left").pack(anchor="w", pady=(4, 0))
-
-            # Output snippet
-            out = entry.get("output", "").strip().replace("\n", " ")
-            if out:
-                tk.Label(c, text=out[:160] + ("…" if len(out) > 160 else ""),
-                         bg=_T["panel"], fg=_T["fg"],
-                         font=("Segoe UI", 9), anchor="w",
-                         wraplength=580, justify="left").pack(anchor="w", pady=(2, 0))
-            elif entry["status"] == "running":
-                tk.Label(c, text="Generating…", bg=_T["panel"], fg=_T["muted"],
-                         font=("Segoe UI", 8, "italic")).pack(anchor="w", pady=(2, 0))
-            elif entry["status"] == "error":
-                tk.Label(c, text="Failed to generate response.",
-                         bg=_T["panel"], fg=_T["danger"],
-                         font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+                parts = [entry["timestamp"],
+                         f"{dur/1000:.1f}s" if dur < 60000 else f"{dur//60000}m"]
+                if entry.get("provider") and entry["provider"] != "none":
+                    parts.append(entry["provider"])
+                refs["dur_lbl"].configure(text="  ·  ".join(parts))
+            # Output label
+            if "out_lbl" in refs:
+                out = entry.get("output", "").strip().replace("\n", " ")
+                lbl = refs["out_lbl"]
+                if out:
+                    lbl.configure(text=out[:160] + ("…" if len(out) > 160 else ""),
+                                  fg=_T["fg"], font=("Segoe UI", 9))
+                    if not lbl.winfo_ismapped():
+                        lbl.pack(anchor="w", pady=(2, 0))
+                elif entry["status"] == "error":
+                    lbl.configure(text="Failed to generate response.",
+                                  fg=_T["danger"], font=("Segoe UI", 8))
+                    if not lbl.winfo_ismapped():
+                        lbl.pack(anchor="w", pady=(2, 0))
 
     def _proc_poll():
         if not win.winfo_exists():
             return
-        # Only rebuild when the processes tab is active and log changed
         if _active[0] == "processes":
-            _build_proc_tab()
-        _proc_poll_id[0] = win.after(2000, _proc_poll)
+            n = len(state.process_log)
+            if n != _proc_count[0]:
+                _build_proc_tab()
+            else:
+                _update_running_cards()
+        _proc_poll_id[0] = win.after(1000, _proc_poll)
 
     _build_proc_tab()
-    _proc_poll_id[0] = win.after(2000, _proc_poll)
+    _proc_poll_id[0] = win.after(1000, _proc_poll)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # MARKETS
