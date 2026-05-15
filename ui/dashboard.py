@@ -40,8 +40,8 @@ _T = {
 }
 
 _TABS = [
-    ("setup",       "✺", "Setup"),
     ("home",        "⊞", "Home"),
+    ("setup",       "✺", "Setup"),
     ("models",      "◈", "Models"),
     ("hotkeys",     "⌨", "Hotkeys"),
     ("markets",     "◎", "Markets"),
@@ -512,16 +512,16 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     _toggle_models()
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # HOME
+    # HOME  (first tab — welcome screen + live status)
     # ═══════════════════════════════════════════════════════════════════════════
     home = make_frame("home")
     h_outer, h_inner = scrollable(home)
     h_outer.pack(fill="both", expand=True)
 
-    # ── Update banner (shown if a newer release is available) ───────────────────
+    # ── Update banner ─────────────────────────────────────────────────────────
     def _show_update_banner(info: dict):
         banner = tk.Frame(h_inner, bg="#1E1A15", padx=14, pady=10)
-        banner.pack(fill="x", pady=(0, 8))
+        banner.pack(fill="x", pady=(0, 0))
         tk.Frame(banner, bg=_T["accent"], width=2).pack(side="left", fill="y", padx=(0, 10))
         tk.Label(banner, text=f"Update available: v{info['version']}",
                  bg="#1E1A15", fg=_T["fg"],
@@ -531,151 +531,277 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         _prog_lbl.pack(side="left", padx=(8, 0))
         _dl_btn = tk.Label(banner, text="Download & Install",
                            bg=_T["accent"], fg="#1A1611",
-                           font=("Segoe UI", 8, "bold"),
-                           padx=10, pady=4, cursor="hand2")
+                           font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
         _dl_btn.pack(side="right")
 
         def _start_dl(e):
             from updater import download_and_apply, apply_update
             _dl_btn.configure(text="Downloading…", bg=_T["panel2"], cursor="", fg=_T["dim"])
             _dl_btn.unbind("<Button-1>")
-
-            def _prog(pct):
-                win.after(0, lambda: _prog_lbl.configure(text=f"{pct}%"))
-
+            def _prog(pct): win.after(0, lambda: _prog_lbl.configure(text=f"{pct}%"))
             def _done(path):
-                def _apply():
-                    _prog_lbl.configure(text="")
-                    _dl_btn.configure(text="Restarting…", fg=_T["dim"])
-                    win.after(1200, lambda: apply_update(path, root))
-                win.after(0, _apply)
-
+                win.after(0, lambda: (_prog_lbl.configure(text=""),
+                                       _dl_btn.configure(text="Restarting…", fg=_T["dim"]),
+                                       win.after(1200, lambda: apply_update(path, root))))
             def _err(msg):
                 win.after(0, lambda: _dl_btn.configure(
                     text="Failed — retry", bg=_T["danger"], fg="#fff", cursor="hand2"))
                 win.after(0, lambda: _dl_btn.bind("<Button-1>", _start_dl))
-
             download_and_apply(info["url"], info["version"], _prog, _done, _err)
 
         _dl_btn.bind("<Button-1>", _start_dl)
 
+    threading.Thread(target=lambda: (
+        __import__("updater").check_for_update() and
+        win.winfo_exists() and
+        win.after(0, lambda: _show_update_banner(
+            __import__("updater").check_for_update()))
+    ) if False else (
+        setattr(_tmp := [None], 0,
+                __import__("updater").check_for_update()) or
+        (_tmp[0] and win.winfo_exists() and
+         win.after(0, lambda: _show_update_banner(_tmp[0])))
+    ), daemon=True).start()
+
     def _check_update_bg():
-        from updater import check_for_update
-        info = check_for_update()
-        if info and win.winfo_exists():
-            win.after(0, lambda: _show_update_banner(info))
+        try:
+            from updater import check_for_update
+            info = check_for_update()
+            if info and win.winfo_exists():
+                win.after(0, lambda: _show_update_banner(info))
+        except Exception:
+            pass
 
     threading.Thread(target=_check_update_bg, daemon=True).start()
 
-    section(h_inner, "Connection Status")
+    # ── Hero illustration ─────────────────────────────────────────────────────
+    import math as _math
 
-    # Status cards — labels filled async after window shows
-    def _status_card(parent, title):
-        c = card(parent, pady=12)
-        dot = tk.Label(c, text="●", bg=_T["panel"], fg=_T["muted"],
-                       font=("Segoe UI", 9))
-        dot.pack(side="right", padx=(8, 0))
-        left = tk.Frame(c, bg=_T["panel"])
-        left.pack(side="left", fill="x", expand=True)
-        tk.Label(left, text=title, bg=_T["panel"], fg=_T["fg"],
-                 font=("Segoe UI", 9, "bold"), anchor="w").pack(anchor="w")
-        val = tk.Label(left, text="checking…", bg=_T["panel"], fg=_T["muted"],
-                       font=("Segoe UI", 8), anchor="w")
-        val.pack(anchor="w")
-        return dot, val
+    _CW, _CH = 460, 190
+    _CX, _CY = _CW // 2, _CH // 2
 
-    cloud_dot, cloud_val = _status_card(h_inner, "Cloud API  (NVIDIA NIM)")
-    local_dot, local_val = _status_card(h_inner, "Local Model  (Ollama)")
-    vis_dot,   vis_val   = _status_card(h_inner, "Vision")
+    hero_canvas = tk.Canvas(h_inner, width=_CW, height=_CH,
+                            bg=_T["bg"], highlightthickness=0)
+    hero_canvas.pack(pady=(18, 0))
+
+    # Static decorative orbital rings
+    for r, col in [(68, "#201D18"), (105, "#1C1914"), (140, "#181510")]:
+        hero_canvas.create_oval(_CX-r, _CY-r, _CX+r, _CY+r,
+                                outline=col, width=1, fill="")
+
+    # Pre-render flame icon for canvas
+    _hero_flame_tk = [None]
+    _hero_flame_item = [None]
+    try:
+        from ui.icons import _render_flame
+        from PIL import ImageTk as _ITk
+        _fl = _render_flame(52, _T["bg"])
+        _hero_flame_tk[0] = _ITk.PhotoImage(_fl)
+        _hero_flame_item[0] = hero_canvas.create_image(
+            _CX, _CY, image=_hero_flame_tk[0])
+    except Exception:
+        _hero_flame_item[0] = hero_canvas.create_oval(
+            _CX-18, _CY-18, _CX+18, _CY+18,
+            fill=_T["accent"], outline="")
+
+    # Context bubbles — what the app understands
+    _BUBBLES = [
+        ("Email",      -148, -38, 0.0),
+        ("Code",        148, -38, 0.9),
+        ("Documents",  -155,  22, 1.8),
+        ("Sales",       153,  22, 2.7),
+        ("Research",    -62, -72, 0.45),
+        ("Any App",      62, -72, 1.35),
+    ]
+
+    _ring_items: list   = []
+    _bubble_items: list = []
+    _anim_t = [0]
+
+    def _home_animate():
+        if not hero_canvas.winfo_exists():
+            return
+        t = _anim_t[0]
+        _anim_t[0] += 1
+
+        # Ripple rings (3 rings offset by 1/3 cycle each)
+        for item in _ring_items:
+            hero_canvas.delete(item)
+        _ring_items.clear()
+
+        for i in range(3):
+            phase = (t / 100.0 + i / 3.0) % 1.0   # cycle = 100 frames ≈ 3.3s
+            r     = int(28 + phase * 112)
+            fade  = 1.0 - phase
+            # Blend accent (#DA7756) → bg (#1A1611)
+            cr = int(0xDA * fade + 0x1A * (1 - fade))
+            cg = int(0x77 * fade + 0x16 * (1 - fade))
+            cb = int(0x56 * fade + 0x11 * (1 - fade))
+            lw = max(1, int(2.5 * (1 - phase * 0.7)))
+            item = hero_canvas.create_oval(
+                _CX - r, _CY - r, _CX + r, _CY + r,
+                outline=f"#{cr:02x}{cg:02x}{cb:02x}", width=lw, fill="")
+            _ring_items.append(item)
+
+        # Keep flame above rings
+        if _hero_flame_item[0]:
+            hero_canvas.tag_raise(_hero_flame_item[0])
+
+        # Floating context bubbles
+        for item in _bubble_items:
+            hero_canvas.delete(item)
+        _bubble_items.clear()
+
+        for label, rx, ry, phase in _BUBBLES:
+            bob = _math.sin(t * 0.038 + phase) * 5
+            x   = _CX + rx
+            y   = _CY + ry + int(bob)
+            tw  = len(label) * 6 + 18
+            th  = 19
+            _bubble_items.append(hero_canvas.create_rectangle(
+                x - tw//2, y - th//2, x + tw//2, y + th//2,
+                fill="#1E1B16", outline="#32302A", width=1))
+            _bubble_items.append(hero_canvas.create_text(
+                x, y, text=label, fill="#6A6055",
+                font=("Segoe UI", 8)))
+
+        hero_canvas.after(33, _home_animate)   # ~30 fps
+
+    hero_canvas.after(120, _home_animate)
+
+    # ── App name + tagline ────────────────────────────────────────────────────
+    tk.Label(h_inner, text="AI Cursor",
+             bg=_T["bg"], fg=_T["fg"],
+             font=("Segoe UI", 20, "bold")).pack(pady=(10, 3))
+    tk.Label(h_inner, text="Your AI reads your screen",
+             bg=_T["bg"], fg=_T["dim"],
+             font=("Segoe UI", 12)).pack()
+    tk.Label(h_inner,
+             text="Select any text  ·  Press Alt+A  ·  Get help instantly",
+             bg=_T["bg"], fg=_T["muted"],
+             font=("Segoe UI", 9)).pack(pady=(4, 0))
+
+    tk.Frame(h_inner, bg=_T["border"], height=1).pack(fill="x", padx=28, pady=16)
+
+    # ── Live status card ──────────────────────────────────────────────────────
+    _sc = card(h_inner, pady=14)
+    _sc_row = tk.Frame(_sc, bg=_T["panel"])
+    _sc_row.pack(fill="x")
+
+    _sc_dot = tk.Label(_sc_row, text="●", bg=_T["panel"], fg=_T["muted"],
+                        font=("Segoe UI", 12))
+    _sc_dot.pack(side="left", padx=(0, 12))
+
+    _sc_mid = tk.Frame(_sc_row, bg=_T["panel"])
+    _sc_mid.pack(side="left", fill="x", expand=True)
+
+    _sc_title = tk.Label(_sc_mid, text="Checking…",
+                          bg=_T["panel"], fg=_T["fg"],
+                          font=("Segoe UI", 10, "bold"), anchor="w")
+    _sc_title.pack(anchor="w")
+
+    _sc_sub = tk.Label(_sc_mid, text="",
+                        bg=_T["panel"], fg=_T["muted"],
+                        font=("Segoe UI", 8), anchor="w")
+    _sc_sub.pack(anchor="w")
+
+    _sc_action = tk.Label(_sc_row, text="",
+                           bg=_T["panel"], fg=_T["accent"],
+                           font=("Segoe UI", 8, "bold"),
+                           padx=10, pady=4, cursor="hand2")
+    _sc_action.pack(side="right")
 
     _status_poll_id = [None]
 
-    def _fetch_status(reschedule: bool = True):
-        from ai import get_ollama_api, get_vision_api, start_bundled_ollama
-        from config import NVIDIA_API_KEY
-        local = get_ollama_api()
-        vis   = get_vision_api()
+    def _poll_status():
+        try:
+            from ai import is_ollama_running, is_model_pulled
+            from storage import load_active_model
+            from models import display_name as _dn
+            ollama_up   = is_ollama_running()
+            model_ready = ollama_up and is_model_pulled()
+            model_name  = _dn(load_active_model())
+        except Exception:
+            ollama_up = model_ready = False
+            model_name = "AI Model"
 
         def _apply():
             if not win.winfo_exists():
                 return
-            if NVIDIA_API_KEY:
-                cloud_val.configure(text="Connected ✓", fg=_T["accent"])
-                cloud_dot.configure(fg=_T["accent"])
+            _sc_action.unbind("<Button-1>")
+            if model_ready:
+                _sc_dot.configure(fg="#4a8c5c")
+                _sc_title.configure(text=f"{model_name}  —  Ready")
+                _sc_sub.configure(text="Press Alt+A anywhere on your screen")
+                _sc_action.configure(text="")
+            elif ollama_up:
+                _sc_dot.configure(fg="#b89440")
+                _sc_title.configure(text="Ollama is running — no model loaded")
+                _sc_sub.configure(text="Download a model to get started")
+                _sc_action.configure(text="Set up model →")
+                _sc_action.bind("<Button-1>", lambda e: switch("models"))
             else:
-                cloud_val.configure(text="No API key", fg=_T["danger"])
-                cloud_dot.configure(fg=_T["danger"])
+                _sc_dot.configure(fg=_T["danger"])
+                _sc_title.configure(text="AI engine not running")
+                _sc_sub.configure(text="Ollama may still be starting…")
+                _sc_action.configure(text="↺ Restart")
+                def _do_restart(e):
+                    _sc_sub.configure(text="Restarting…")
+                    _sc_action.configure(text="")
+                    def _do():
+                        from ai import start_bundled_ollama
+                        start_bundled_ollama()
+                        threading.Thread(target=_poll_status, daemon=True).start()
+                    threading.Thread(target=_do, daemon=True).start()
+                _sc_action.bind("<Button-1>", _do_restart)
 
-            if local:
-                port = local.split(":")[2].split("/")[0] if local.count(":") >= 2 else ""
-                local_val.configure(text=f"{OLLAMA_MODEL} (:{port})", fg=_T["accent"])
-                local_dot.configure(fg=_T["accent"])
-            else:
-                local_val.configure(text="Not running", fg=_T["muted"])
-
-            if NVIDIA_API_KEY:
-                vis_val.configure(text="NVIDIA cloud", fg=_T["accent"])
-                vis_dot.configure(fg=_T["accent"])
-            elif vis:
-                vis_val.configure(text="Local llava-phi3", fg=_T["accent"])
-                vis_dot.configure(fg=_T["accent"])
-            else:
-                vis_val.configure(text="Unavailable", fg=_T["muted"])
-
-            if reschedule and win.winfo_exists():
-                _status_poll_id[0] = win.after(5000, lambda: threading.Thread(
-                    target=_fetch_status, daemon=True).start())
+            if win.winfo_exists():
+                _status_poll_id[0] = win.after(
+                    4000, lambda: threading.Thread(
+                        target=_poll_status, daemon=True).start())
 
         win.after(0, _apply)
 
-    def _restart_ollama():
-        local_val.configure(text="Starting…", fg=_T["muted"])
-        local_dot.configure(fg=_T["muted"])
-        def _do():
-            from ai import start_bundled_ollama
-            start_bundled_ollama()
-            threading.Thread(target=_fetch_status, kwargs={"reschedule": False}, daemon=True).start()
-        threading.Thread(target=_do, daemon=True).start()
+    threading.Thread(target=_poll_status, daemon=True).start()
 
-    restart_row = tk.Frame(h_inner, bg=_T["bg"])
-    restart_row.pack(fill="x", padx=16, pady=(0, 8))
-    tk.Button(
-        restart_row, text="↺  Restart Ollama", bg=_T["panel2"], fg=_T["dim"],
-        relief="flat", bd=0, padx=12, pady=5,
-        font=("Segoe UI", 8), cursor="hand2",
-        command=_restart_ollama,
-    ).pack(side="left")
-    tk.Button(
-        restart_row, text="⟳  Refresh status", bg=_T["panel2"], fg=_T["dim"],
-        relief="flat", bd=0, padx=12, pady=5,
-        font=("Segoe UI", 8), cursor="hand2",
-        command=lambda: threading.Thread(
-            target=_fetch_status, kwargs={"reschedule": False}, daemon=True).start(),
-    ).pack(side="left", padx=(8, 0))
+    # ── Alt+A call-to-action ──────────────────────────────────────────────────
+    cta = tk.Frame(h_inner, bg=_T["panel2"], padx=0, pady=12)
+    cta.pack(fill="x", padx=16, pady=(8, 4))
 
-    def _on_close():
-        if _status_poll_id[0]:
-            win.after_cancel(_status_poll_id[0])
-        win.destroy()
-    win.protocol("WM_DELETE_WINDOW", _on_close)
-    x_btn.bind("<Button-1>", lambda e: _on_close())
+    cta_inner = tk.Frame(cta, bg=_T["panel2"])
+    cta_inner.pack()
 
-    threading.Thread(target=_fetch_status, daemon=True).start()
+    for i, (txt, is_key) in enumerate([("Alt", True), ("+", False), ("A", True)]):
+        if is_key:
+            tk.Label(cta_inner, text=txt,
+                     bg=_T["panel"], fg=_T["fg"],
+                     font=("Segoe UI", 10, "bold"),
+                     padx=11, pady=5).pack(side="left", padx=2)
+        else:
+            tk.Label(cta_inner, text=txt,
+                     bg=_T["panel2"], fg=_T["muted"],
+                     font=("Segoe UI", 10)).pack(side="left", padx=3)
 
+    tk.Label(h_inner, text="anywhere on your screen",
+             bg=_T["bg"], fg=_T["muted"],
+             font=("Segoe UI", 9)).pack(pady=(6, 12))
+
+    tk.Frame(h_inner, bg=_T["border"], height=1).pack(fill="x", padx=28, pady=(0, 4))
+
+    # ── Hotkeys ───────────────────────────────────────────────────────────────
     section(h_inner, "Hotkeys")
     hk = load_hotkeys()
-    hk_display = {"menu": "Action Menu", "history": "History",
-                  "style": "Style", "form": "Form Fill"}
-    for action, label in hk_display.items():
+    for action, label in [("menu", "Action Menu"), ("history", "History"),
+                           ("style", "Style"), ("form", "Form Fill")]:
         if action in hk:
             c = card(h_inner, pady=9)
             tk.Label(c, text=label, bg=_T["panel"], fg=_T["dim"],
-                     font=("Segoe UI", 9), anchor="w",
-                     width=14).pack(side="left")
+                     font=("Segoe UI", 9), width=14, anchor="w").pack(side="left")
             tk.Label(c, text=format_hotkey(hk[action]),
                      bg=_T["panel2"], fg=_T["fg"],
                      font=("JetBrains Mono", 9), padx=10, pady=3).pack(side="left")
 
+    # ── Display toggles ───────────────────────────────────────────────────────
     section(h_inner, "Display")
 
     c = card(h_inner, pady=12)
@@ -690,18 +816,14 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     def _cursor_on():
         save_flame_cursor(True)
         try:
-            from ui.icons import set_flame_cursor
-            set_flame_cursor()
-        except Exception:
-            pass
+            from ui.icons import set_flame_cursor; set_flame_cursor()
+        except Exception: pass
 
     def _cursor_off():
         save_flame_cursor(False)
         try:
-            from ui.icons import restore_default_cursor
-            restore_default_cursor()
-        except Exception:
-            pass
+            from ui.icons import restore_default_cursor; restore_default_cursor()
+        except Exception: pass
 
     toggle_widget(c, load_flame_cursor, _cursor_on, _cursor_off)
 
@@ -713,6 +835,16 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                  font=("Segoe UI", 9), width=14).pack(side="left")
         tk.Label(c, text=mkt, bg=_T["panel"], fg=_T["accent"],
                  font=("Segoe UI", 9)).pack(side="left")
+
+    # ── Window close cleanup ──────────────────────────────────────────────────
+    def _on_close():
+        if _status_poll_id[0]:
+            try: win.after_cancel(_status_poll_id[0])
+            except Exception: pass
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", _on_close)
+    x_btn.bind("<Button-1>", lambda e: _on_close())
 
     # ═══════════════════════════════════════════════════════════════════════════
     # MODELS
