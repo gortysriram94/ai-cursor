@@ -195,7 +195,21 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         wid = cv.create_window((0, 0), window=inner, anchor="nw")
         inner.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
         cv.bind("<Configure>", lambda e: cv.itemconfig(wid, width=e.width))
-        cv.bind("<MouseWheel>", lambda e: cv.yview_scroll(int(-1*(e.delta/120)), "units"))
+
+        # Bind mousewheel globally while the mouse is inside this scroll area
+        # so scrolling works over any child widget, not just the canvas itself.
+        def _on_scroll(e):
+            cv.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        def _on_enter(e):
+            cv.bind_all("<MouseWheel>", _on_scroll)
+
+        def _on_leave(e):
+            cv.unbind_all("<MouseWheel>")
+
+        outer.bind("<Enter>", _on_enter)
+        outer.bind("<Leave>", _on_leave)
+
         sb.pack(side="right", fill="y")
         cv.pack(side="left", fill="both", expand=True)
         return outer, inner
