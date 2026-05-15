@@ -76,3 +76,7 @@ _ollama_proc: subprocess.Popen | None = None
 is_first_run: bool = False
 # Keyed by model name → {pct, mb, tot, text, done, error}
 model_dl_status: dict = {}
+
+# ── Pending update ────────────────────────────────────────────────────────────
+# Set by startup update check so the dashboard banner shows instantly.
+pending_update: dict | None = None   # {"version": "x.y.z", "url": "..."}

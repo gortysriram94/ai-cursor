@@ -356,6 +356,23 @@ def main():
     from ai import start_auto_download_queue
     start_auto_download_queue()
 
+    # ── Update check at startup ───────────────────────────────────────────────
+    def _startup_update_check():
+        try:
+            from updater import check_for_update
+            info = check_for_update()
+            if info:
+                state.pending_update = info
+                _tray.notify(
+                    f"Update available: v{info['version']}",
+                    "Open the dashboard to download and install.",
+                )
+                log(f"[UPDATE] v{info['version']} available")
+        except Exception as e:
+            log(f"[UPDATE] startup check failed: {e}")
+
+    threading.Thread(target=_startup_update_check, daemon=True, name="update-check").start()
+
     # ── Ollama watchdog ───────────────────────────────────────────────────────
     from ai import start_ollama_watchdog
     start_ollama_watchdog()

@@ -301,8 +301,11 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
     def _su_check_update():
         try:
-            from updater import check_for_update
-            info = check_for_update()
+            # Use cached result from startup check; fall back to a fresh API call
+            info = state.pending_update
+            if info is None:
+                from updater import check_for_update
+                info = check_for_update()
             if info and win.winfo_exists():
                 win.after(0, lambda: _show_su_update_banner(info))
         except Exception:
@@ -825,8 +828,11 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
     def _check_update_bg():
         try:
-            from updater import check_for_update
-            info = check_for_update()
+            # Use cached result from startup check; fall back to a fresh API call
+            info = state.pending_update
+            if info is None:
+                from updater import check_for_update
+                info = check_for_update()
             if info and win.winfo_exists():
                 win.after(0, lambda: _show_update_banner(info))
         except Exception:
