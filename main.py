@@ -336,6 +336,10 @@ def main():
 
     setup_ollama(root)
 
+    # ── Ollama watchdog ───────────────────────────────────────────────────────
+    from ai import start_ollama_watchdog
+    start_ollama_watchdog()
+
     # ── Pre-build provider registry ───────────────────────────────────────────
     # Force registry initialisation NOW on the main thread so the streaming
     # thread never has to run _build_defaults() (which does deferred imports

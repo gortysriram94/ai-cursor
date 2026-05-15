@@ -148,6 +148,50 @@ def stop_bundled_ollama():
         state._ollama_proc = None
 
 
+# ── Ollama watchdog ───────────────────────────────────────────────────────────
+
+_watchdog_running = [False]
+
+
+def start_ollama_watchdog():
+    """
+    Background thread that checks Ollama health every 30 seconds and restarts
+    it automatically if it has crashed or been killed by the OS.
+    Safe to call multiple times — only one watchdog thread runs.
+    """
+    if _watchdog_running[0]:
+        return
+    _watchdog_running[0] = True
+
+    def _watch():
+        while True:
+            time.sleep(30)
+            try:
+                # Don't interrupt an active AI call
+                if state.ai_active_count > 0:
+                    continue
+                if not is_ollama_running():
+                    log("[WATCHDOG] Ollama not responding — restarting")
+                    ok = start_bundled_ollama()
+                    if ok:
+                        log("[WATCHDOG] Ollama restarted successfully")
+                        # Invalidate is_available cache so next call re-checks
+                        try:
+                            from providers.registry import get_providers
+                            for p in get_providers():
+                                if p.name == "Ollama":
+                                    p._avail_until = 0.0
+                        except Exception:
+                            pass
+                    else:
+                        log("[WATCHDOG] Ollama restart failed — will retry in 30s")
+            except Exception as e:
+                log(f"[WATCHDOG] error: {e}")
+
+    threading.Thread(target=_watch, daemon=True, name="ollama-watchdog").start()
+    log("[WATCHDOG] Ollama monitor started")
+
+
 # ── Model management ──────────────────────────────────────────────────────────
 
 def delete_model(model: str) -> bool:

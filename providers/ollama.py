@@ -73,6 +73,15 @@ class OllamaProvider(AIProvider):
                     conn.close()
                     break   # rate-limited — fall through to cloud
 
+                if resp.status >= 500:
+                    body = resp.read().decode("utf-8", errors="replace")[:200]
+                    conn.close()
+                    log(f"[Ollama STREAM] HTTP {resp.status}: {body}")
+                    if attempt < 2:
+                        _t.sleep(2)
+                        self.is_available()
+                    continue   # retry — 500 is often transient (model still loading)
+
                 for raw_line in resp:
                     line = raw_line.strip()
                     if not line:
@@ -115,7 +124,11 @@ class OllamaProvider(AIProvider):
             conn.request("POST", "/v1/chat/completions", body=body,
                          headers={"Content-Type": "application/json"})
             resp = conn.getresponse()
-            raw  = json.loads(resp.read().decode("utf-8"))
+            if resp.status >= 400:
+                log(f"[Ollama COMPLETE] HTTP {resp.status}")
+                conn.close()
+                return ""
+            raw = json.loads(resp.read().decode("utf-8"))
             conn.close()
             return raw["choices"][0]["message"]["content"].strip()
         except Exception as e:
