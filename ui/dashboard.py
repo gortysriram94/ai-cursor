@@ -560,14 +560,18 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                 return mid, False
             changed = False
             with ThreadPoolExecutor(max_workers=6) as pool:
-                for f in as_completed({pool.submit(_chk, m): m for m in unknown}, timeout=8):
-                    try:
-                        mid, found = f.result()
-                        if found:
-                            state.model_dl_status[mid] = {"done": True, "pct": 100, "text": "Ready ✓"}
-                            changed = True
-                    except Exception:
-                        pass
+                futures = {pool.submit(_chk, m): m for m in unknown}
+                try:
+                    for f in as_completed(futures, timeout=8):
+                        try:
+                            mid, found = f.result()
+                            if found:
+                                state.model_dl_status[mid] = {"done": True, "pct": 100, "text": "Ready ✓"}
+                                changed = True
+                        except Exception:
+                            pass
+                except TimeoutError:
+                    pass
             if changed and win.winfo_exists():
                 win.after(0, _refresh_su_models)
 
@@ -741,18 +745,6 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
             download_and_apply(info["url"], info["version"], _prog, _done, _err)
 
         _dl_btn.bind("<Button-1>", _start_dl)
-
-    threading.Thread(target=lambda: (
-        __import__("updater").check_for_update() and
-        win.winfo_exists() and
-        win.after(0, lambda: _show_update_banner(
-            __import__("updater").check_for_update()))
-    ) if False else (
-        setattr(_tmp := [None], 0,
-                __import__("updater").check_for_update()) or
-        (_tmp[0] and win.winfo_exists() and
-         win.after(0, lambda: _show_update_banner(_tmp[0])))
-    ), daemon=True).start()
 
     def _check_update_bg():
         try:
@@ -1254,15 +1246,18 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
             with ThreadPoolExecutor(max_workers=6) as pool:
                 futures = {pool.submit(_check_one, mid): mid for mid in unknown}
-                for f in as_completed(futures, timeout=8):
-                    try:
-                        mid, found = f.result()
-                        if found:
-                            state.model_dl_status[mid] = {
-                                "done": True, "pct": 100, "text": "Ready ✓"}
-                            changed = True
-                    except Exception:
-                        pass
+                try:
+                    for f in as_completed(futures, timeout=8):
+                        try:
+                            mid, found = f.result()
+                            if found:
+                                state.model_dl_status[mid] = {
+                                    "done": True, "pct": 100, "text": "Ready ✓"}
+                                changed = True
+                        except Exception:
+                            pass
+                except TimeoutError:
+                    pass
 
             if changed:
                 try:
