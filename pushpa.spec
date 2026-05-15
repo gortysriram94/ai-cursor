@@ -68,6 +68,10 @@ a = Analysis(
         "providers.registry",
         # Core
         "ai",
+        "tray",
+        "pystray",
+        "pystray._win32",
+        "pystray._darwin",
         "rag_config",
         "rag_log",
         "privacy_check",

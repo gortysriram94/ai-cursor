@@ -218,6 +218,11 @@ def delete_model(model: str) -> bool:
 def download_model_bg(model: str):
     """Pull an Ollama model in a background thread. No Tkinter calls — writes to state only."""
     state.model_dl_status[model] = {"text": "Connecting…"}
+    try:
+        import tray
+        tray.set_state("downloading", f"AI Cursor — Downloading {model}…")
+    except Exception:
+        pass
     t_start = time.time()
     try:
         res = requests.post(f"{OLLAMA_API}/api/pull",
@@ -279,10 +284,22 @@ def _warmup_model(model: str):
             conn.close()
             state.model_dl_status[model]["text"] = "Ready ✓"
             log(f"[OLLAMA] {model} warmed up — first response will be instant")
+            try:
+                import tray
+                tray.set_state("ready")
+                tray.notify("AI Cursor is ready", "Press Alt+A to start")
+            except Exception:
+                pass
             return
         except Exception as e:
             log(f"[OLLAMA] warmup port {port}: {e}")
     state.model_dl_status[model]["text"] = "Ready ✓"
+    try:
+        import tray
+        tray.set_state("ready")
+        tray.notify("AI Cursor is ready", "Press Alt+A to start")
+    except Exception:
+        pass
 
 
 # ── Text streaming (public) ───────────────────────────────────────────────────

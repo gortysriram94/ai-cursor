@@ -334,6 +334,14 @@ def main():
     root.configure(bg=_TRANSP)
     root.geometry("1x1+0+0")
 
+    # ── System tray icon — appears immediately so users know the app is running ─
+    import tray as _tray
+    _tray.start_tray(
+        open_dashboard_fn = lambda: root.after(0, lambda: _show_dashboard(root)),
+        quit_fn           = lambda: root.after(0, root.quit),
+    )
+    atexit.register(_tray.stop)
+
     setup_ollama(root)
 
     # ── Ollama watchdog ───────────────────────────────────────────────────────
@@ -415,6 +423,10 @@ def main():
     if state.is_first_run:
         from ui.dashboard import show_dashboard
         root.after(800, lambda: show_dashboard(root, initial_tab="setup"))
+    else:
+        # Model already installed — mark tray as ready immediately
+        _tray.set_state("ready")
+        _tray.notify("AI Cursor is ready", "Press Alt+A to start")
 
     # ── Form fill trigger ─────────────────────────────────────────────────────
 
