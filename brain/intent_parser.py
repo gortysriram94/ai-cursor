@@ -85,7 +85,7 @@ def _keyword_match(text: str) -> Optional[str]:
 
 def _extract_entities(text: str, tmpl) -> dict:
     """Call local LLM to extract structured entities from the natural language input."""
-    import requests
+    import http.client as _hc
     from config import OLLAMA_CONTEXT_MODEL, OLLAMA_PORT
 
     entity_keys = list(tmpl.entity_map.keys())
@@ -103,25 +103,27 @@ def _extract_entities(text: str, tmpl) -> dict:
         "- If a value is clearly not present, use empty string\n"
     )
 
-    for port in [11434, OLLAMA_PORT]:
+    body = json.dumps({
+        "model":   OLLAMA_CONTEXT_MODEL,
+        "prompt":  prompt,
+        "stream":  False,
+        "options": {"temperature": 0.05, "num_predict": 300},
+    }).encode("utf-8")
+
+    for port in [OLLAMA_PORT, 11434]:
         try:
-            res = requests.post(
-                f"http://localhost:{port}/api/generate",
-                json={
-                    "model":   OLLAMA_CONTEXT_MODEL,
-                    "prompt":  prompt,
-                    "stream":  False,
-                    "options": {"temperature": 0.05, "num_predict": 300},
-                },
-                timeout=8,
-            )
-            if res.status_code == 200:
-                raw = res.json().get("response", "").strip()
+            conn = _hc.HTTPConnection("localhost", port, timeout=8)
+            conn.request("POST", "/api/generate", body=body,
+                         headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            if resp.status == 200:
+                raw = json.loads(resp.read()).get("response", "").strip()
+                conn.close()
                 m = re.search(r'\{.*\}', raw, re.DOTALL)
                 if m:
                     parsed = json.loads(m.group())
-                    # Keep only non-empty values
                     return {k: v for k, v in parsed.items() if v}
+            conn.close()
         except Exception as e:
             log(f"[INTENT] LLM extract port {port}: {e}")
 

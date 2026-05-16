@@ -44,16 +44,46 @@ def learn_from_compacts(app_name: str = "") -> int:
         for r in existing_rules if r.source == "inferred"
     }
 
-    # Collect field value observations across all compacts
-    # compact.context is a string like "GL 6200 · Cost Centre 4100 · Project OM-42"
-    # We use entity lists more than raw context text
+    # Collect field value observations from entity lists and context strings.
+    # Entities are plain strings from WorkingContext — classify by pattern.
+    # Context strings may be structured: "GL 6200 · Cost Centre 4100 · Project OM-42"
     field_obs: dict[str, list[str]] = defaultdict(list)
     for c in compacts:
+        # Parse entity list — handles both plain strings and "Label: value" pairs
         for entity in c.get("entities", []):
-            # Entities are stored as "Label: value" or plain values
+            entity = str(entity).strip()
+            if not entity:
+                continue
             if ":" in entity:
                 label, _, val = entity.partition(":")
-                field_obs[label.strip()].append(val.strip())
+                if label.strip() and val.strip():
+                    field_obs[label.strip()].append(val.strip())
+            else:
+                # Classify plain entity by pattern into typed buckets
+                if re.match(r'^\d{4,6}$', entity):
+                    field_obs["__code__"].append(entity)
+                elif re.match(r'^\$?[\d,]+\.?\d*[kKmM]?$', entity):
+                    field_obs["__amount__"].append(entity)
+                elif re.match(r'^\d{4}-\d{2}-\d{2}$', entity):
+                    field_obs["__date__"].append(entity)
+                elif re.match(r'^[A-Z]{2,4}-\d+$', entity):
+                    field_obs["__ref_code__"].append(entity)
+
+        # Parse context string — "GL 6200 · Cost Centre 4100 · Project OM-42"
+        context = c.get("context", "")
+        if context:
+            for part in re.split(r'[·,]', context):
+                part = part.strip()
+                if not part:
+                    continue
+                if ":" in part:
+                    label, _, val = part.partition(":")
+                    if label.strip() and val.strip():
+                        field_obs[label.strip()].append(val.strip())
+                else:
+                    words = part.split()
+                    if len(words) == 2 and re.match(r'^[\w\-]+$', words[1]):
+                        field_obs[words[0]].append(words[1])
 
     new_rules = 0
 

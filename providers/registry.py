@@ -37,8 +37,34 @@ def _build_defaults() -> None:
             vision_model = NVIDIA_VISION_MODEL,
         ))
 
-    # ── Priority 3: Ollama local (primary — retries 3× before falling back) ───
+    # ── Priority 3: Ollama local — auto-upgrade away from bundled 0.5b ──────────
     active_model = load_active_model()
+
+    # If the active model is the bundled starter (0.5b), try to find the best
+    # non-bundled downloaded model and use that instead.
+    try:
+        from models import MODELS
+        from storage import load_downloaded_models
+        bundled_ids  = {m["id"] for m in MODELS if m.get("bundled")}
+        if active_model in bundled_ids:
+            downloaded = load_downloaded_models()
+            capable = sorted(
+                [m for m in MODELS
+                 if not m.get("bundled")
+                 and m["id"] in downloaded
+                 and m["category"] == "main"],
+                key=lambda m: m.get("size_gb", 0),
+                reverse=True,
+            )
+            if capable:
+                active_model = capable[0]["id"]
+                log(f"[REGISTRY] bundled model active — auto-upgraded to {active_model}")
+            else:
+                state.only_bundled_model = True
+                log("[REGISTRY] only bundled starter model available — real tasks limited")
+    except Exception as _e:
+        log(f"[REGISTRY] model upgrade check failed: {_e}")
+
     _providers.append(OllamaProvider(active_model, OLLAMA_VISION))
     log(f"[REGISTRY] Ollama model: {active_model}")
 

@@ -130,16 +130,50 @@ class WindowsPlatform(PlatformBase):
 
     # ── Window text ────────────────────────────────────────────────────────────
 
+    def get_selected_text(self, window: WindowInfo) -> str:
+        """
+        Return only the currently highlighted/selected text using
+        IUIAutomationTextPattern.GetSelection(). Returns empty string
+        if nothing is selected or UIA is unavailable.
+        """
+        if not _UIA or not window.handle:
+            return ""
+        try:
+            root = _uia.ElementFromHandle(window.handle)
+            tp = root.GetCurrentPattern(10014)  # UIA_TextPatternId
+            if not tp:
+                # Try focused element if root has no TextPattern
+                focused = _uia.GetFocusedElement()
+                if focused:
+                    tp = focused.GetCurrentPattern(10014)
+            if tp:
+                itp = tp.QueryInterface(_UIA_MOD.IUIAutomationTextPattern)
+                selections = itp.GetSelection()
+                if selections and selections.Length > 0:
+                    sel_range = selections.GetElement(0)
+                    selected  = sel_range.GetText(4000)
+                    if selected and selected.strip():
+                        return selected.strip()
+        except Exception:
+            pass
+        return ""
+
     def get_window_text(self, window: WindowInfo) -> str:
         """
-        Two-pass text extraction:
+        Three-pass text extraction:
+        0. UIA GetSelection() — returns highlighted text if any (most specific).
         1. UIA TextPattern on the root element (catches web content, documents).
         2. EnumChildWindows fallback (catches native controls).
         """
         parts: list[str] = []
         hwnd = window.handle
 
-        # Pass 1 — UIA
+        # Pass 0 — selected text (most specific — what the user is focused on)
+        selected = self.get_selected_text(window)
+        if selected:
+            parts.append(selected)
+
+        # Pass 1 — UIA full document text
         if _UIA and hwnd:
             try:
                 root = _uia.ElementFromHandle(hwnd)

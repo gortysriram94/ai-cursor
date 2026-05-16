@@ -26,7 +26,7 @@ class Observation:
     app_name:     str
     window_title: str
     visible_text: str
-    event_type:   str   # "window_change" | "content_change" | "periodic"
+    event_type:   str   # "window_change" | "content_change" | "selection_change" | "periodic"
     pid:          int = 0
 
 
@@ -53,6 +53,7 @@ class PerceptionThread:
         self._last_handle     = None
         self._last_title      = ""
         self._last_text       = ""
+        self._last_selection  = ""   # tracks highlighted text separately
         self._last_content_ts = 0.0
         self._last_periodic_ts = 0.0
 
@@ -92,14 +93,26 @@ class PerceptionThread:
         )
 
         if window_changed:
-            self._last_handle = window.handle
-            self._last_title  = window.window_title
+            self._last_handle    = window.handle
+            self._last_title     = window.window_title
+            self._last_selection = ""
             text = self._safe_get_text(plat, window)
             self._last_text        = text
             self._last_content_ts  = now
             self._last_periodic_ts = now
             self._emit(window, text, "window_change")
             return
+
+        # Check selection — emit immediately when user highlights something new
+        try:
+            if hasattr(plat, "get_selected_text"):
+                sel = plat.get_selected_text(window)
+                if sel and sel != self._last_selection and len(sel) > 5:
+                    self._last_selection = sel
+                    self._emit(window, sel, "selection_change")
+                    return
+        except Exception:
+            pass
 
         # Same window — check if content changed
         if now - self._last_content_ts >= self.CONTENT_INTERVAL:

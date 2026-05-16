@@ -77,6 +77,11 @@ is_first_run: bool = False
 # Keyed by model name → {pct, mb, tot, text, done, error}
 model_dl_status: dict = {}
 
+# ── Model capability ─────────────────────────────────────────────────────────
+# Set True by registry when only the bundled 0.5b starter is available.
+# Used by ui/result.py to show a progress screen instead of running the model.
+only_bundled_model: bool = False
+
 # ── Pending update ────────────────────────────────────────────────────────────
 # Set by startup update check so the dashboard banner shows instantly.
 pending_update: dict | None = None   # {"version": "x.y.z", "url": "..."}

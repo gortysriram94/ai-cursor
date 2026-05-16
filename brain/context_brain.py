@@ -130,9 +130,9 @@ class ContextBrain:
         state.context_ready   = False
 
         if is_new_task:
-            self._task_start = obs.timestamp
-            # Compact the previous task in background — never blocks the loop
+            # Compute duration from previous task_start BEFORE overwriting it
             duration = int(obs.timestamp - self._task_start)
+            self._task_start = obs.timestamp
             threading.Thread(
                 target=self._try_compact,
                 args=(prev_ctx, duration),
