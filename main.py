@@ -534,6 +534,25 @@ def main():
 
             if hk == _HK_MENU and not state.menu_open and (
                     _time.monotonic() - _menu_close_ts[0] >= _REOPEN_COOLDOWN):
+                # ── Capture selected text NOW while source window still has focus ──
+                # The OS intercepted Alt+A before any window saw it, so the source
+                # window is still focused. Send Ctrl+C immediately to get the real
+                # selection — much more reliable than the accessibility-tree reader
+                # which often returns the window title (e.g. "Chrome Legacy Window").
+                _fresh_selection = ""
+                try:
+                    import pyperclip as _pc
+                    _prev_clip = _pc.paste()
+                    pyautogui.hotkey("ctrl", "c")
+                    _time.sleep(0.15)   # give clipboard time to update
+                    _new_clip = _pc.paste()
+                    if _new_clip and _new_clip != _prev_clip and len(_new_clip) > 5:
+                        _fresh_selection = _new_clip
+                        log(f"[CAPTURE] clipboard selection: {len(_fresh_selection)} chars")
+                    _pc.copy(_prev_clip)  # restore original clipboard
+                except Exception as _ce:
+                    log(f"[CAPTURE] clipboard capture failed: {_ce}")
+
                 # Set flag BEFORE show_menu to close the race window where a
                 # second hotkey press could slip through before the flag is set
                 # inside show_menu (the panel function sets it too, but later).
@@ -545,6 +564,12 @@ def main():
                 if ctx:
                     app_name = ctx.app_name
                     context  = ctx.market
+                # Override brain's raw_text with the fresh clipboard selection
+                # when it's longer (brain may only see window title from accessibility)
+                if _fresh_selection and ctx:
+                    if len(_fresh_selection) > len(ctx.raw_text or ""):
+                        ctx.raw_text = _fresh_selection[:4000]
+                        log(f"[CAPTURE] overrode ctx.raw_text with clipboard ({len(_fresh_selection)} chars)")
                 else:
                     app_name, context = get_active_context()
 

@@ -1326,10 +1326,12 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
             canvas.tag_bind(tag, "<Button-1>", _on_node_click)
 
-    def _start_canvas_anim(canvas: tk.Canvas, steps: list):
-        """Animate dots along wires. Runs until canvas is destroyed."""
-        anim_t = [0]
-        pulse  = [0]
+    def _start_canvas_anim(canvas: tk.Canvas, steps: list,
+                           detail_frame: tk.Frame, detail_shown: list):
+        """Animate dots + live-redraw nodes when their status changes."""
+        anim_t       = [0]
+        pulse        = [0]
+        _last_status = [s["status"] for s in steps]
 
         def _tick():
             if not canvas.winfo_exists():
@@ -1337,11 +1339,20 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
             anim_t[0] += 1
             pulse[0]   = (pulse[0] + 1) % 30
 
+            # ── Detect any status change → redraw all static nodes cleanly ──────
+            changed = any(steps[i]["status"] != _last_status[i]
+                          for i in range(len(steps)))
+            if changed:
+                for i in range(len(steps)):
+                    _last_status[i] = steps[i]["status"]
+                _draw_proc_canvas(canvas, steps, detail_frame, detail_shown)
+                # _draw_proc_canvas deletes all canvas items; dots/pulse
+                # are recreated below in this same tick frame.
+
             canvas.delete("dot")
             canvas.delete("pulse_border")
 
             for i, step in enumerate(steps):
-                # Pulsing left border accent for running node
                 if step["status"] == "running":
                     alpha = abs(pulse[0] - 15) / 15.0
                     r = int(0xb8 * alpha + 0x26 * (1 - alpha))
@@ -1353,10 +1364,9 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                                              fill=pc, outline="",
                                              tags="pulse_border")
 
-                # Moving dot along wire
                 if i < len(steps) - 1 and step["status"] in ("done", "running"):
                     wx1 = _node_nx(i) + _NW
-                    wx2 = wx1 + _NGAP - 6   # stop before arrowhead
+                    wx2 = wx1 + _NGAP - 6
                     frac = (anim_t[0] % 18) / 18.0
                     dx = wx1 + frac * (wx2 - wx1)
                     dc = "#4a8c5c" if step["status"] == "done" else "#b89440"
@@ -1459,7 +1469,7 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                                    highlightthickness=0)
                     cv.pack(padx=0, pady=(6, 0))
                     _draw_proc_canvas(cv, steps, detail_frame, detail_shown)
-                    _start_canvas_anim(cv, steps)
+                    _start_canvas_anim(cv, steps, detail_frame, detail_shown)
             expand_open[0] = not expand_open[0]
 
         tog_btn.bind("<Button-1>", _toggle_expand)
