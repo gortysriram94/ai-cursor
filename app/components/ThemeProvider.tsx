@@ -1,8 +1,6 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { loadPersistedKeys } from "@/lib/byok";
-import { getSettings, saveSettings } from "@/lib/store";
 
 type Theme = "dark" | "light";
 
@@ -27,36 +25,21 @@ function applyTheme(t: Theme) {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  // Default to dark — the inline script in layout.tsx has already set the
-  // correct attribute on <html> before React hydrates, so there is no flash.
   const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
-    loadPersistedKeys();
-
-    const lsTheme = (localStorage.getItem("tokenlift_theme") as Theme) || "dark";
-    setTheme(lsTheme);
-    applyTheme(lsTheme);
-
-    getSettings().then(s => {
-      if (s.theme && s.theme !== lsTheme) {
-        setTheme(s.theme);
-        applyTheme(s.theme);
-        localStorage.setItem("tokenlift_theme", s.theme);
-      }
-    }).catch(() => {});
+    const stored = (localStorage.getItem("pushpa_theme") as Theme) || "dark";
+    setTheme(stored);
+    applyTheme(stored);
   }, []);
 
   const toggle = () => {
     const next: Theme = theme === "dark" ? "light" : "dark";
     setTheme(next);
-    localStorage.setItem("tokenlift_theme", next);
+    localStorage.setItem("pushpa_theme", next);
     applyTheme(next);
-    saveSettings({ theme: next }).catch(() => {});
   };
 
-  // No visibility:hidden guard — the inline script below handles theme before
-  // React renders, so children are always visible immediately.
   return (
     <ThemeContext.Provider value={{ theme, toggle }}>
       {children}

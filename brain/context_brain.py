@@ -26,6 +26,7 @@ import state
 from context import classify_market, MARKET_CONTEXTS, _detect_context_type, detect_content_type
 from brain.signals import extract_signals, ContentSignals
 from brain.sections import detect_sections, find_current_section
+from brain.proactive import maybe_generate
 
 
 # ── Working context ────────────────────────────────────────────────────────────
@@ -113,17 +114,17 @@ class ContextBrain:
         prev_ctx    = deepcopy(self._ctx) if self._ctx.app_name else self._ctx
         is_new_task = self._is_task_boundary(obs, prev_ctx, market)
 
-        self._ctx.app_name     = obs.app_name
-        self._ctx.window_title = obs.window_title
+        self._ctx.app_name          = obs.app_name
+        self._ctx.window_title      = obs.window_title
         self._ctx.market            = market
         self._ctx.context_type      = context_type
         self._ctx.content_type      = ctype
         self._ctx.content_type_conf = ctype_conf
-        self._ctx.signals      = signals
-        self._ctx.sections     = sections
-        self._ctx.raw_text     = obs.visible_text
-        self._ctx.last_updated = obs.timestamp
-        self._ctx.ready        = False
+        self._ctx.signals           = signals
+        self._ctx.sections          = sections
+        self._ctx.raw_text          = obs.visible_text
+        self._ctx.last_updated      = obs.timestamp
+        self._ctx.ready             = False
 
         # Keep global section state in sync so the minimap can read it
         state.page_sections = sections
@@ -161,6 +162,15 @@ class ContextBrain:
                 self._ctx.ready   = True
                 state.working_context = self._ctx
                 state.context_ready   = True
+                # Entities already populated from previous enrich — safe to trigger
+                maybe_generate(
+                    text         = obs.visible_text,
+                    app_name     = obs.app_name,
+                    content_type = self._ctx.content_type,
+                    ctype_conf   = self._ctx.content_type_conf,
+                    signals      = self._ctx.signals,
+                    entities     = self._ctx.entities,
+                )
             else:
                 self._last_enrich_key = _enrich_key
                 self._last_enrich_ts  = _now
@@ -243,3 +253,13 @@ class ContextBrain:
         from security import redact_for_log
         log(f"[BRAIN] ready ({self._ctx.market}) — "
             f"{redact_for_log(self._ctx.situation[:70])}")
+
+        # Trigger proactive generation now — entities are fresh from LLM enrichment
+        maybe_generate(
+            text         = obs.visible_text,
+            app_name     = obs.app_name,
+            content_type = self._ctx.content_type,
+            ctype_conf   = self._ctx.content_type_conf,
+            signals      = self._ctx.signals,
+            entities     = self._ctx.entities,
+        )

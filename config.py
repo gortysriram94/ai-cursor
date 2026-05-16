@@ -60,11 +60,13 @@ LOG_FILE       = APP_DIR / "pushpa.log"
 LOG_FILE_PREV  = APP_DIR / "pushpa_prev.log"
 LOG_PROMPTS    = os.environ.get("PUSHPA_LOG_PROMPTS", "0") == "1"    # set in .env.local to debug prompts
 DEBUG_OVERLAY  = os.environ.get("PUSHPA_DEBUG_OVERLAY", "0") == "1"  # floating diagnostics HUD
-HISTORY_FILE  = APP_DIR / "pushpa_history.json"
-PREFS_FILE    = APP_DIR / "pushpa_prefs.json"
-STYLE_FILE    = APP_DIR / "pushpa_style.json"
-HOTKEYS_FILE      = APP_DIR / "pushpa_hotkeys.json"
-CONNECTIONS_FILE  = APP_DIR / "pushpa_connections.json"
+HISTORY_FILE         = APP_DIR / "pushpa_history.json"
+PREFS_FILE           = APP_DIR / "pushpa_prefs.json"
+STYLE_FILE           = APP_DIR / "pushpa_style.json"
+HOTKEYS_FILE         = APP_DIR / "pushpa_hotkeys.json"
+CONNECTIONS_FILE     = APP_DIR / "pushpa_connections.json"
+CUSTOM_ACTIONS_FILE  = APP_DIR / "pushpa_custom_actions.json"
+ACTION_RANKINGS_FILE = APP_DIR / "pushpa_action_rankings.json"
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────────

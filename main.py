@@ -583,20 +583,54 @@ def main():
                 except Exception:
                     pass
 
-                try:
-                    show_menu(
-                        root, cx, cy,
-                        app_name=app_name,
-                        context=context,
-                        target_hwnd=target_hwnd,
-                        on_settings=lambda: _show_dashboard(root),
-                        on_close=lambda: _menu_close_ts.__setitem__(0, _time.monotonic()),
-                    )
-                except Exception as _menu_err:
-                    # If show_menu crashes for any reason, reset the flag so
-                    # Alt+A is not permanently blocked.
-                    state.menu_open = False
-                    log(f"[MENU] show_menu crashed — menu_open reset: {_menu_err}")
+                # Auto-run: proactive cache hit + high-confidence selection → skip panel
+                _auto_ran = False
+                if _fresh_selection and ctx and not state.only_bundled_model:
+                    _ctype_conf = getattr(ctx, "content_type_conf", 0.0)
+                    _ctype      = getattr(ctx, "content_type", "generic")
+                    if _ctype_conf >= 0.75 and _ctype != "generic":
+                        import hashlib as _hl
+                        _ph  = _hl.md5(ctx.raw_text[:400].encode()).hexdigest()[:12]
+                        _pe  = state.proactive_cache.get(_ph)
+                        if _pe and _pe.get("status") == "ready" and _pe.get("result"):
+                            from ui.result import show_result_window
+                            from brain.context_bundle import ContextBundle
+                            from storage import get_pref as _gp
+                            _bundle = ContextBundle.from_working_context(ctx)
+                            _tone   = _gp(ctx.app_name, "tone", "professional") if ctx.app_name else "professional"
+                            show_result_window(
+                                root, ctx.raw_text[:2000], _pe["action"], _tone,
+                                cx, cy,
+                                target_hwnd=target_hwnd,
+                                bundle=_bundle,
+                                proactive_result=_pe["result"],
+                            )
+                            state.menu_open = False
+                            _auto_ran = True
+                            log(f"[AUTORUN] skipped menu — proactive hit for '{_pe['action']}'")
+
+                if not _auto_ran:
+                    try:
+                        show_menu(
+                            root, cx, cy,
+                            app_name=app_name,
+                            context=context,
+                            target_hwnd=target_hwnd,
+                            on_settings=lambda: _show_dashboard(root),
+                            on_close=lambda: _menu_close_ts.__setitem__(0, _time.monotonic()),
+                        )
+                    except Exception as _menu_err:
+                        # If show_menu crashes for any reason, reset the flag so
+                        # Alt+A is not permanently blocked.
+                        state.menu_open = False
+                        log(f"[MENU] show_menu crashed — menu_open reset: {_menu_err}")
+                        # Destroy any orphaned toplevels left by the crash
+                        for _w in root.winfo_children():
+                            try:
+                                if isinstance(_w, tk.Toplevel) and getattr(_w, '_is_menu', False):
+                                    _w.destroy()
+                            except Exception:
+                                pass
 
             elif hk == _HK_HISTORY:
                 cx, cy = pyautogui.position()

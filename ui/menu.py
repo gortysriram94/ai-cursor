@@ -401,14 +401,44 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
     # ── Quick action suggestions ──────────────────────────────────────────────
     # Use context_type (email/chat/social/docs/…) for action button labels,
     # NOT market (sales/finance/…) which is for system-prompt vertical selection.
-    actions = CONTEXT_ACTIONS.get(context_type,
-              CONTEXT_ACTIONS.get(context,
-              CONTEXT_ACTIONS["generic"]))
+    _raw_actions = CONTEXT_ACTIONS.get(context_type,
+                   CONTEXT_ACTIONS.get(context,
+                   CONTEXT_ACTIONS["generic"]))
+    # Sort by user's historical usage for this context (most-used first)
+    try:
+        from storage import load_action_rankings
+        _rankings = load_action_rankings().get(context_type, {})
+        if _rankings:
+            _raw_actions = sorted(
+                _raw_actions,
+                key=lambda la: -_rankings.get(la[1], 0),
+            )
+    except Exception:
+        pass
     # Show top 3, skip "annotate" (removed feature)
-    suggestions = [(label, key) for label, key in actions
+    suggestions = [(label, key) for label, key in _raw_actions
                    if key != "annotate"][:3]
     # Always offer Fill Form as the last suggestion
     suggestions.append(("Fill Form", "_fill_form"))
+
+    # ── Posture: detect confidence level and proactive cache state ────────────
+    import hashlib as _hl
+    _raw_hash      = _hl.md5(raw_text[:400].encode()).hexdigest()[:12] if raw_text else ""
+    _pcache        = state.proactive_cache.get(_raw_hash, {}) if _raw_hash else {}
+    _cached_action = _pcache.get("action", "") if _pcache.get("status") == "ready" else ""
+
+    _ctype_conf    = getattr(ctx, "content_type_conf", 0.0) if ctx else 0.0
+    # Suggested action: the first content-type-matched suggestion
+    _suggested_key = suggestions[0][1] if suggestions and _ctype_conf >= 0.75 else ""
+
+    if _cached_action:
+        _posture = "cached"
+    elif _suggested_key and _suggested_key != "_fill_form":
+        _posture = "suggested"
+    elif confidence >= 0.4:
+        _posture = "normal"
+    else:
+        _posture = "open"
 
     if suggestions:
         tk.Frame(outer, bg=_T["border"], height=1).pack(fill="x")
@@ -416,20 +446,26 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
         pill_row.pack(fill="x")
 
         for label, action_key in suggestions:
+            _is_cached    = (_posture == "cached"    and action_key == _cached_action)
+            _is_suggested = (_posture == "suggested" and action_key == _suggested_key)
+
+            p_bg  = _T["accent"]          if _is_cached    else _T["bg_raised"] if _is_suggested else _T["pill"]
+            p_fg  = _T["pill_active_fg"]  if _is_cached    else _T["fg"]        if _is_suggested else _T["pill_fg"]
+            p_txt = ("⚡ " + label)        if _is_cached    else label
+
             p = tk.Label(
-                pill_row, text=label,
-                bg=_T["pill"], fg=_T["pill_fg"],
-                font=("Segoe UI", 8),
+                pill_row, text=p_txt,
+                bg=p_bg, fg=p_fg,
+                font=("Segoe UI", 8, "bold" if (_is_cached or _is_suggested) else "normal"),
                 padx=10, pady=4,
                 cursor="hand2",
             )
             p.pack(side="left", padx=(0, 4))
             p.bind("<Enter>",
-                   lambda e, w=p: w.configure(bg=_T["pill_active"],
-                                               fg=_T["pill_active_fg"]))
+                   lambda e, w=p, ob=p_bg, of=p_fg: w.configure(
+                       bg=_T["pill_active"], fg=_T["pill_active_fg"]))
             p.bind("<Leave>",
-                   lambda e, w=p: w.configure(bg=_T["pill"],
-                                               fg=_T["pill_fg"]))
+                   lambda e, w=p, ob=p_bg, of=p_fg: w.configure(bg=ob, fg=of))
             p.bind("<Button-1>",
                    lambda e, k=action_key: _run_action(k))
 
@@ -555,17 +591,33 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
             return
 
         from ui.result import show_result_window
+        import hashlib as _hl
+        import state as _state
         mx, my = win.winfo_x(), win.winfo_y()
         close()
         time.sleep(0.04)
         full_text = (ctx.raw_text[:2000] if ctx and ctx.raw_text else "")
         full_text, att_screenshot = _apply_attachment(full_text)
+
+        # Check proactive cache — use pre-generated result if action matches and ready
+        proactive_result = ""
+        if ctx and ctx.raw_text:
+            _hash  = _hl.md5(ctx.raw_text[:400].encode()).hexdigest()[:12]
+            _entry = _state.proactive_cache.get(_hash)
+            if (_entry
+                    and _entry.get("status") == "ready"
+                    and _entry.get("action") == action_key
+                    and _entry.get("result")):
+                proactive_result = _entry["result"]
+                log(f"[MENU] proactive cache hit for '{action_key}'")
+
         show_result_window(
             root, full_text, action_key, saved_tone,
             mx, my,
             target_hwnd=target_hwnd,
             bundle=bundle,
             screenshot=att_screenshot,
+            proactive_result=proactive_result,
         )
 
     submit_lbl.bind("<Button-1>", _submit)
@@ -597,3 +649,7 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
 
     _reposition()
     ask_entry.focus_set()
+
+    # Auto-focus ask entry for low-confidence "open" posture
+    if _posture == "open":
+        win.after(80, ask_entry.focus_set)

@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "./components/ThemeProvider";
-import AgentStatus from "./components/AgentStatus";
-import AiJobWorker from "./components/AiJobWorker";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -35,8 +33,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.className} antialiased`}>
         <ThemeProvider>
           {children}
-          <AgentStatus />
-          <AiJobWorker />
         </ThemeProvider>
       </body>
     </html>

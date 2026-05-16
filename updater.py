@@ -61,6 +61,17 @@ def download_and_apply(url: str, version: str,
                 if progress_cb and total > 0:
                     progress_cb(min(100, int(n * chunk / total * 100)))
             urllib.request.urlretrieve(url, dest, _hook)
+
+            # Basic integrity check — valid Windows PE starts with "MZ" and is > 1 MB
+            size = dest.stat().st_size if dest.exists() else 0
+            header = dest.read_bytes()[:2] if size > 0 else b""
+            if header != b"MZ" or size < 1_000_000:
+                dest.unlink(missing_ok=True)
+                raise ValueError(
+                    f"Downloaded file failed integrity check "
+                    f"(size={size}, header={header!r})"
+                )
+
             if done_cb:
                 done_cb(dest)
         except Exception as e:

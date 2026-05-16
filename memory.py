@@ -75,17 +75,43 @@ def route_compact(record: CompactRecord, destination: str,
 
 # ── Folder / Obsidian (both write markdown files) ─────────────────────────────
 
+# System directories that must never be used as save targets.
+_BLOCKED_ROOTS = (
+    "C:\\Windows",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)",
+    "C:\\ProgramData",
+    "/etc", "/usr", "/bin", "/sbin", "/lib", "/boot", "/sys", "/proc",
+)
+
+
+def _validate_save_path(raw: str) -> Path:
+    """
+    Resolve raw to an absolute path and reject path traversal or system dirs.
+    Raises ValueError if the path is unsafe.
+    """
+    resolved = Path(raw).resolve()
+    resolved_str = str(resolved).lower()
+    for blocked in _BLOCKED_ROOTS:
+        if resolved_str.startswith(blocked.lower()):
+            raise ValueError(f"Refusing to write to system directory: {resolved}")
+    return resolved
+
+
 def _save_to_folder(record: CompactRecord, folder_path: str) -> bool:
     if not folder_path:
         log("[MEMORY] folder destination set but no path configured")
         return False
     try:
-        folder = Path(folder_path)
+        folder = _validate_save_path(folder_path)
         folder.mkdir(parents=True, exist_ok=True)
         fname = _safe_filename(record)
         (folder / fname).write_text(record.to_markdown(), encoding="utf-8")
         log(f"[MEMORY] Saved to folder: {fname}")
         return True
+    except ValueError as e:
+        log(f"[MEMORY] Folder save rejected — {e}")
+        return False
     except Exception as e:
         log(f"[MEMORY] Folder save failed: {e}")
         return False

@@ -155,12 +155,16 @@ def _linux_load_all() -> dict:
 
 
 def _linux_save_all(data: dict) -> None:
+    import os
     p = _linux_path()
-    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    content = json.dumps(data, indent=2).encode("utf-8")
+    # O_CREAT|O_WRONLY|O_TRUNC with mode 0o600 sets permissions atomically at
+    # file creation — no window where the file exists with world-readable perms.
+    fd = os.open(str(p), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
     try:
-        p.chmod(0o600)
-    except Exception:
-        pass
+        os.write(fd, content)
+    finally:
+        os.close(fd)
 
 
 def _linux_store(ref: str, creds: dict) -> bool:

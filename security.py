@@ -112,27 +112,16 @@ def classify_field(field_label: str, control_type: str = "text",
     return PiiInfo("none", "", False, True)
 
 
-def classify_fields(fields: list) -> list:
-    """
-    Annotate a list of FormField objects with their pii_info.
-    Mutates each field's pii_level attribute in-place.
-    Returns the same list.
-    """
+def classify_fields(fields: list) -> None:
+    """Annotate each FormField with its pii_level, pii_label, pii_mask, pii_can_fill."""
     for f in fields:
         info = classify_field(f.label, f.control_type, f.placeholder)
-        f.pii_level   = info.level
-        f.pii_label   = info.label
-        f.pii_mask    = info.should_mask
+        f.pii_level    = info.level
+        f.pii_label    = info.label
+        f.pii_mask     = info.should_mask
         f.pii_can_fill = info.can_fill
-
-        # Clear suggested values for fields we must not auto-fill
         if not info.can_fill:
             f.suggested_value = ""
-        elif info.level == "high":
-            # Keep the suggestion but it will be masked in the UI
-            pass
-
-    return fields
 
 
 # ── Form-level risk summary ───────────────────────────────────────────────────

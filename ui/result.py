@@ -34,6 +34,74 @@ from ui.icons import (
 )
 
 
+# ── Smart Dispatch helpers ────────────────────────────────────────────────────
+
+def _get_running_apps() -> set[str]:
+    """Return set of lowercase exe names for running processes."""
+    try:
+        import psutil
+        return {p.info["name"].lower()
+                for p in psutil.process_iter(["name"])
+                if p.info.get("name")}
+    except Exception:
+        return set()
+
+
+_APP_DISPATCH = [
+    ("slack.exe",    "→ Slack",    "slack"),
+    ("notion.exe",   "→ Notion",   "notion"),
+    ("obsidian.exe", "→ Obsidian", "obsidian"),
+    ("discord.exe",  "→ Discord",  "discord"),
+    ("teams.exe",    "→ Teams",    "teams"),
+    ("code.exe",     "→ VS Code",  "vscode"),
+]
+
+# Content types where Copy is the primary action (analytical output)
+_COPY_PRIMARY_CONTENT = {
+    "earnings_release", "trade_thesis", "property_listing",
+    "research_report", "job_posting", "key_takeaways",
+    "pros_cons", "legal_contract", "explain_contract",
+}
+
+
+def _bring_app_forward(key: str) -> None:
+    """Copy to clipboard then bring the target app window to the foreground."""
+    _KEY_TO_EXE = {
+        "slack":    "slack.exe",
+        "notion":   "notion.exe",
+        "obsidian": "obsidian.exe",
+        "discord":  "discord.exe",
+        "teams":    "teams.exe",
+        "vscode":   "code.exe",
+    }
+    exe = _KEY_TO_EXE.get(key, "")
+    if not exe or not WIN32_AVAILABLE:
+        return
+    try:
+        import win32gui
+        import win32process
+        import psutil as _ps
+
+        target_hwnd = [None]
+
+        def _cb(hwnd, _):
+            if not win32gui.IsWindowVisible(hwnd):
+                return
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                name = _ps.Process(pid).name().lower()
+                if name == exe and target_hwnd[0] is None:
+                    target_hwnd[0] = hwnd
+            except Exception:
+                pass
+
+        win32gui.EnumWindows(_cb, None)
+        if target_hwnd[0]:
+            win32gui.SetForegroundWindow(target_hwnd[0])
+    except Exception as e:
+        log(f"[DISPATCH] bring_forward failed for {key}: {e}")
+
+
 # ── Visual result color palette ───────────────────────────────────────────────
 
 _VR_BG      = "#1A1611"
@@ -603,7 +671,8 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
                        custom_instruction: str = "",
                        target_hwnd=None,
                        on_back=None,
-                       bundle=None):
+                       bundle=None,
+                       proactive_result: str = ""):
 
     from brain.context_bundle import ContextBundle
     b        = bundle or ContextBundle.empty()
@@ -854,9 +923,25 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
             _clipboard_copy(get_result())
             copy_btn.configure(text="Copied!")
             win.after(1500, lambda: copy_btn.configure(text="Copy"))
+            try:
+                from storage import record_action_used
+                _ct = getattr(b, "context_type", "generic") or "generic"
+                threading.Thread(
+                    target=record_action_used, args=(_ct, action), daemon=True
+                ).start()
+            except Exception:
+                pass
 
         def do_insert():
-            state._log_stats["inserts"] += 1
+            state._bump("inserts")
+            try:
+                from storage import record_action_used
+                _ct = getattr(b, "context_type", "generic") or "generic"
+                threading.Thread(
+                    target=record_action_used, args=(_ct, action), daemon=True
+                ).start()
+            except Exception:
+                pass
             content = get_result()
 
             # Capture the insert target NOW (at click time, not at hotkey-press time).
@@ -895,8 +980,20 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
                 except Exception:
                     pass
             time.sleep(0.25)
-            pyautogui.hotkey("ctrl", "v")
-            state._pre_insert_clipboard = ""   # paste complete — no need to restore
+            # Verify the target window is still in the foreground — user may have
+            # switched windows during the sleep, which would paste into the wrong app.
+            safe_to_paste = True
+            if insert_hwnd and WIN32_AVAILABLE:
+                try:
+                    import win32gui
+                    if win32gui.GetForegroundWindow() != insert_hwnd:
+                        safe_to_paste = False
+                        log("[INSERT] focus changed during sleep — paste cancelled")
+                except Exception:
+                    pass
+            if safe_to_paste:
+                pyautogui.hotkey("ctrl", "v")
+            state._pre_insert_clipboard = ""   # done — crash.py no longer needs to restore
             win.destroy()
 
         tk.Frame(body_frame, bg=R_BORDER, height=1).pack(fill="x")
@@ -916,32 +1013,143 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
                 cursor="hand2",
             )
 
-        if action in COPY_PRIMARY_ACTIONS:
-            copy_btn   = _btn(footer, "Copy",   do_copy, primary=True)
+        # ── Smart Dispatch — context-aware destination buttons ────────────────
+        _content_type = getattr(b, "content_type", "generic")
+        _running      = _get_running_apps()
+
+        # Primary action: Copy-first for analytical output, Insert-first otherwise
+        _copy_first = _content_type in _COPY_PRIMARY_CONTENT or action in COPY_PRIMARY_ACTIONS
+
+        if _copy_first:
+            copy_btn = _btn(footer, "Copy", do_copy, primary=True)
             copy_btn.pack(side="left")
-            edit_btn   = _btn(footer, "Edit",   None)
-            edit_btn.configure(command=lambda: enter_edit(edit_btn))
-            edit_btn.pack(side="left", padx=(6, 0))
-            insert_btn = _btn(footer, "Insert", do_insert)
+            insert_btn = _btn(footer, "Insert ↵", do_insert)
             insert_btn.pack(side="left", padx=(6, 0))
-
-        elif action in REPLACE_ACTIONS:
-            insert_btn = _btn(footer, "Replace  ↵", do_insert, primary=True)
-            insert_btn.pack(side="left")
-            copy_btn   = _btn(footer, "Copy",        do_copy)
-            copy_btn.pack(side="left", padx=(6, 0))
-            edit_btn   = _btn(footer, "Edit",        None)
-            edit_btn.configure(command=lambda: enter_edit(edit_btn))
-            edit_btn.pack(side="left", padx=(6, 0))
-
         else:
-            insert_btn = _btn(footer, "Insert  ↵", do_insert, primary=True)
+            insert_btn = _btn(footer, "Insert ↵", do_insert, primary=True)
             insert_btn.pack(side="left")
-            copy_btn   = _btn(footer, "Copy",       do_copy)
+            copy_btn = _btn(footer, "Copy", do_copy)
             copy_btn.pack(side="left", padx=(6, 0))
-            edit_btn   = _btn(footer, "Edit",       None)
-            edit_btn.configure(command=lambda: enter_edit(edit_btn))
-            edit_btn.pack(side="left", padx=(6, 0))
+
+        # Detected app dispatch buttons (max 2)
+        _app_count = 0
+        for _exe, _lbl, _key in _APP_DISPATCH:
+            if _exe in _running and _app_count < 2:
+                def _make_dispatch(key=_key, lbl=_lbl):
+                    def _go():
+                        content = get_result()
+                        _clipboard_copy(content)
+                        _bring_app_forward(key)
+                        log(f"[DISPATCH] copied + focused {lbl}")
+                    return _go
+                app_btn = _btn(footer, _lbl, _make_dispatch())
+                app_btn.pack(side="left", padx=(6, 0))
+                _app_count += 1
+
+        edit_btn = _btn(footer, "Edit", None)
+        edit_btn.configure(command=lambda: enter_edit(edit_btn))
+        edit_btn.pack(side="left", padx=(6, 0))
+
+        # ── Saved custom actions (top 2 by usage) ────────────────────────────
+        try:
+            from storage import load_custom_actions, save_custom_action
+            _saved = load_custom_actions()[:2]
+        except Exception:
+            _saved = []
+
+        for _ca in _saved:
+            def _make_custom_dispatch(instr=_ca["instruction"], lbl=_ca["label"]):
+                def _go():
+                    close_result = [False]
+                    _orig = text
+                    _prompt = f"{instr}\n\nContent:\n{_orig[:2000]}"
+                    _buf2 = [""]
+                    result_text.configure(state="normal")
+                    result_text.delete("1.0", "end")
+                    result_text.configure(state="disabled")
+
+                    def _tok(t):
+                        _buf2[0] += t
+                        result_text.configure(state="normal")
+                        result_text.insert("end", t)
+                        result_text.configure(state="disabled")
+                        result_text.see("end")
+
+                    def _dn():
+                        threading.Thread(
+                            target=save_custom_action, args=(instr,), daemon=True
+                        ).start()
+
+                    from ai import call_ai_streaming
+                    call_ai_streaming(_orig, "custom", tone, _tok, _dn,
+                                      lambda: None,
+                                      custom_instruction=instr, bundle=b)
+                return _go
+            ca_btn = _btn(footer, f"+ {_ca['label'][:18]}", _make_custom_dispatch())
+            ca_btn.pack(side="left", padx=(6, 0))
+
+        # ── [+] Custom action input ───────────────────────────────────────────
+        _plus_frame = tk.Frame(footer, bg=R_BG)
+        _plus_frame.pack(side="left", padx=(6, 0))
+
+        _plus_btn = tk.Label(
+            _plus_frame, text="[+]",
+            bg=R_BG, fg=R_MUTED,
+            font=("Segoe UI", 8), cursor="hand2", padx=6, pady=6,
+        )
+        _plus_btn.pack()
+
+        _custom_entry = tk.Entry(
+            _plus_frame,
+            bg=R_SURFACE, fg=R_FG,
+            insertbackground=R_FG,
+            relief="flat", bd=0,
+            font=("Segoe UI", 8),
+            width=22,
+        )
+
+        def _show_custom_input(e=None):
+            _plus_btn.pack_forget()
+            _custom_entry.pack(ipady=4, padx=2)
+            _custom_entry.focus_set()
+
+        def _run_custom_action(e=None):
+            instr = _custom_entry.get().strip()
+            if not instr:
+                return
+            _custom_entry.pack_forget()
+            _plus_btn.configure(text="Running…")
+            _plus_btn.pack()
+
+            def _tok(t):
+                result_text.configure(state="normal")
+                result_text.insert("end", t)
+                result_text.configure(state="disabled")
+                result_text.see("end")
+
+            def _dn():
+                _plus_btn.configure(text="Saved ✓")
+                win.after(1500, lambda: _plus_btn.configure(text="[+]"))
+                threading.Thread(
+                    target=save_custom_action, args=(instr,), daemon=True
+                ).start()
+
+            result_text.configure(state="normal")
+            result_text.delete("1.0", "end")
+            result_text.configure(state="disabled")
+
+            from ai import call_ai_streaming
+            call_ai_streaming(text, "custom", tone, _tok, _dn,
+                              lambda: _plus_btn.configure(text="[+]"),
+                              custom_instruction=instr, bundle=b)
+
+        def _cancel_custom(e=None):
+            _custom_entry.pack_forget()
+            _plus_btn.pack()
+
+        _plus_btn.bind("<Button-1>", _show_custom_input)
+        _custom_entry.bind("<Return>", _run_custom_action)
+        _custom_entry.bind("<Escape>", _cancel_custom)
 
         if on_back:
             tk.Button(
@@ -1226,7 +1434,17 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
         except Exception as e:
             log(f"[SOURCES] render failed: {e}")
 
-    if text and _is_link_aware:
+    if proactive_result:
+        # Cached result from proactive generation — replay it with staggered delays
+        # so on_done is always scheduled after the last on_token callback.
+        log(f"[MODE] proactive cache hit → {action} ({len(proactive_result)} chars)")
+        chunk_size = 40
+        delay = 0
+        for i in range(0, len(proactive_result), chunk_size):
+            root.after(delay, lambda t=proactive_result[i:i+chunk_size]: on_token(t))
+            delay += 8
+        root.after(delay + 30, on_done)
+    elif text and _is_link_aware:
         call_link_aware_streaming(text, _detected_urls, action, tone,
                                   on_token, on_done, _on_error,
                                   status_cb=_status_cb, app_name=b.app_name)

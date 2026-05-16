@@ -18,7 +18,7 @@ def log(msg: str):
     line = f"[{time.strftime('%H:%M:%S')}] {msg}"
     print(line, flush=True)
     if "[ERROR]" in msg or "ERROR" in msg:
-        state._log_stats["errors"] += 1
+        state._bump("errors")
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(line + "\n")

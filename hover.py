@@ -87,7 +87,10 @@ def _uia_element_at(x: int, y: int) -> dict:
 
 def _hover_loop(root: tk.Tk, highlight_win: list):
     """Background thread: poll cursor position, update _hover_state, move highlight."""
-    _last_pos = [-1, -1]
+    _last_pos            = [-1, -1]
+    _last_hover_key      = ""   # prefix of last text processed for proactive generation
+    _last_hover_trigger  = 0.0  # monotonic time of last proactive trigger
+    _HOVER_MIN_INTERVAL  = 2.0  # seconds — minimum gap between triggers
 
     while True:
         time.sleep(0.12)
@@ -112,8 +115,43 @@ def _hover_loop(root: tk.Tk, highlight_win: list):
                         ))
                     except Exception:
                         pass
+
+                # Trigger proactive generation when hovering over substantive text
+                htext = info.get("text", "")
+                if len(htext) >= 80:
+                    hover_key = htext[:40]
+                    now = time.monotonic()
+                    if (hover_key != _last_hover_key
+                            and (now - _last_hover_trigger) >= _HOVER_MIN_INTERVAL):
+                        _last_hover_key     = hover_key
+                        _last_hover_trigger = now
+                        _trigger_proactive_from_hover(htext)
         except Exception:
             pass
+
+
+def _trigger_proactive_from_hover(text: str) -> None:
+    try:
+        from brain.signals import extract_signals
+        from context import detect_content_type
+        from brain.proactive import maybe_generate
+        import state as _state
+
+        ctx = _state.working_context
+        app_name = ctx.app_name if ctx else ""
+        market   = ctx.market   if ctx else "generic"
+
+        signals = extract_signals(text)
+        ctype, ctype_conf = detect_content_type(text, signals, market, "generic")
+        maybe_generate(
+            text         = text,
+            app_name     = app_name,
+            content_type = ctype,
+            ctype_conf   = ctype_conf,
+            signals      = signals,
+        )
+    except Exception:
+        pass
 
 
 # ── Highlight window ──────────────────────────────────────────────────────────

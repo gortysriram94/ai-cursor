@@ -141,7 +141,7 @@ def stream_with_fallback(
         p = available[idx]
         state.last_ai_provider       = p.name
         state.last_ai_fallback       = idx > 0
-        state._log_stats["actions"] += 1
+        state._bump("actions")
         state._log_stats["provider"] = p.name
 
         def _next():

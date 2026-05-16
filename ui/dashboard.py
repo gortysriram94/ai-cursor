@@ -1042,10 +1042,17 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
                 def _do_restart(e):
                     _sc_sub.configure(text="Restarting…")
                     _sc_action.configure(text="")
+                    # Cancel the existing poll chain before starting a new one —
+                    # prevents duplicate concurrent _poll_status loops on multi-click.
+                    if _status_poll_id[0]:
+                        try: win.after_cancel(_status_poll_id[0])
+                        except Exception: pass
+                        _status_poll_id[0] = None
                     def _do():
                         from ai import start_bundled_ollama
                         start_bundled_ollama()
-                        threading.Thread(target=_poll_status, daemon=True).start()
+                        if win.winfo_exists():
+                            threading.Thread(target=_poll_status, daemon=True).start()
                     threading.Thread(target=_do, daemon=True).start()
                 _sc_action.bind("<Button-1>", _do_restart)
 
@@ -1482,7 +1489,11 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
         hdr = tk.Frame(pr_inner, bg=_T["bg"])
         hdr.pack(fill="x", padx=14, pady=(14, 4))
-        count = len(state.process_log)
+        # Snapshot under lock so background AI threads can't mutate during iteration
+        with state._process_log_lock:
+            _entries = list(state.process_log)
+
+        count = len(_entries)
         tk.Label(hdr, text=f"Activity  ({count})",
                  bg=_T["bg"], fg=_T["fg"],
                  font=("Segoe UI", 11, "bold")).pack(side="left")
@@ -1491,12 +1502,13 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         clr.pack(side="right")
 
         def _clear(e):
-            state.process_log.clear()
+            with state._process_log_lock:
+                state.process_log.clear()
             _proc_count[0] = 0
             _build_proc_tab()
         clr.bind("<Button-1>", _clear)
 
-        if not state.process_log:
+        if not _entries:
             tk.Label(pr_inner,
                      text="No activity yet — press Alt+A anywhere to get started.",
                      bg=_T["bg"], fg=_T["muted"],
@@ -1504,10 +1516,10 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
             _proc_count[0] = 0
             return
 
-        for entry in reversed(state.process_log):
+        for entry in reversed(_entries):
             _make_proc_card(entry)
 
-        _proc_count[0] = len(state.process_log)
+        _proc_count[0] = count
 
     def _update_running_cards():
         """Update status/output text for in-flight entries without rebuilding."""

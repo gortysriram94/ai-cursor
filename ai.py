@@ -243,7 +243,8 @@ def download_model_bg(model: str):
     t_start = time.time()
     try:
         res = requests.post(pull_url,
-                            json={"name": model}, stream=True, timeout=None)
+                            json={"name": model}, stream=True,
+                            timeout=(30, None))   # 30s connect; no read timeout for streaming
         for line in res.iter_lines():
             if cancel.is_set():
                 try: res.close()
@@ -489,9 +490,10 @@ def call_ai_streaming(text: str, action: str, tone: str,
         "_t0":         _t_start,
         "steps":       _steps,
     }
-    state.process_log.append(_proc_entry)
-    if len(state.process_log) > 300:
-        state.process_log.pop(0)
+    with state._process_log_lock:
+        state.process_log.append(_proc_entry)
+        if len(state.process_log) > 300:
+            state.process_log.pop(0)
 
     # ── Step 1: Input Capture (instant) ───────────────────────────────────────
     _step("input").update({

@@ -10,13 +10,24 @@ from config import (
     HISTORY_FILE, PREFS_FILE, STYLE_FILE, HOTKEYS_FILE,
     DEFAULT_HOTKEYS, _MOD_BITS, _VK_MAP,
     MAX_HISTORY, MAX_STYLE_SAMPLES, MIN_SAMPLES_FOR_PROFILE,
+    CUSTOM_ACTIONS_FILE, ACTION_RANKINGS_FILE,
 )
 from log import log
 
 
-# ── History ───────────────────────────────────────────────────────────────────
+# ── File-level locks (fix #9 — read-modify-write race) ───────────────────────
+_history_lock         = threading.Lock()
+_style_lock           = threading.Lock()
+_custom_actions_lock  = threading.Lock()
+_rankings_lock        = threading.Lock()
 
-def load_history() -> list:
+# ── History ───────────────────────────────────────────────────────────────────
+# In-memory cache (fix #31 — avoids full file read on every save_history call)
+_history_cache: "list | None" = None
+
+
+def _read_history_file() -> list:
+    """Read history from disk. Caller must hold _history_lock."""
     try:
         if HISTORY_FILE.exists():
             return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
@@ -25,21 +36,31 @@ def load_history() -> list:
     return []
 
 
+def load_history() -> list:
+    global _history_cache
+    with _history_lock:
+        if _history_cache is None:
+            _history_cache = _read_history_file()
+        return list(_history_cache)
+
+
 def save_history(app_name: str, action: str, result: str, tone: str):
-    try:
-        history = load_history()
-        history.insert(0, {
-            "ts":     time.strftime("%b %d  %H:%M"),
-            "app":    app_name or "Unknown",
-            "action": action,
-            "result": result,
-            "tone":   tone,
-        })
-        HISTORY_FILE.write_text(
-            json.dumps(history[:MAX_HISTORY], indent=2), encoding="utf-8"
-        )
-    except Exception as e:
-        log(f"[HISTORY] Save failed: {e}")
+    global _history_cache
+    with _history_lock:
+        try:
+            base = list(_history_cache) if _history_cache is not None else _read_history_file()
+            base.insert(0, {
+                "ts":     time.strftime("%b %d  %H:%M"),
+                "app":    app_name or "Unknown",
+                "action": action,
+                "result": result,
+                "tone":   tone,
+            })
+            base = base[:MAX_HISTORY]
+            _history_cache = base
+            HISTORY_FILE.write_text(json.dumps(base, indent=2), encoding="utf-8")
+        except Exception as e:
+            log(f"[HISTORY] Save failed: {e}")
 
 
 # ── Style memory ──────────────────────────────────────────────────────────────
@@ -61,25 +82,28 @@ def save_style_sample(text: str, context: str):
     """Called on every Insert — builds up style memory silently."""
     if len(text.strip()) < 30:
         return
-    try:
-        data = load_style_data()
-        data["samples"].insert(0, {
-            "text":    text.strip()[:600],
-            "context": context,
-            "ts":      time.strftime("%Y-%m-%d %H:%M"),
-        })
-        data["samples"]      = data["samples"][:MAX_STYLE_SAMPLES]
-        data["sample_count"] = len(data["samples"])
-        STYLE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        log(f"[STYLE] Sample saved ({data['sample_count']} total)")
-
-        count = data["sample_count"]
-        if count >= MIN_SAMPLES_FOR_PROFILE and (
-            count % 5 == 0 or not data.get("profile")
-        ):
-            threading.Thread(target=_synthesize_style_profile, daemon=True).start()
-    except Exception as e:
-        log(f"[STYLE] Save failed: {e}")
+    spawn_synthesis = False
+    with _style_lock:
+        try:
+            data = load_style_data()
+            data["samples"].insert(0, {
+                "text":    text.strip()[:600],
+                "context": context,
+                "ts":      time.strftime("%Y-%m-%d %H:%M"),
+            })
+            data["samples"]      = data["samples"][:MAX_STYLE_SAMPLES]
+            data["sample_count"] = len(data["samples"])
+            STYLE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            log(f"[STYLE] Sample saved ({data['sample_count']} total)")
+            count = data["sample_count"]
+            if count >= MIN_SAMPLES_FOR_PROFILE and (
+                count % 5 == 0 or not data.get("profile")
+            ):
+                spawn_synthesis = True
+        except Exception as e:
+            log(f"[STYLE] Save failed: {e}")
+    if spawn_synthesis:
+        threading.Thread(target=_synthesize_style_profile, daemon=True).start()
 
 
 def _synthesize_style_profile():
@@ -413,3 +437,70 @@ def format_hotkey(s: str) -> str:
     return "+".join(
         _mouse.get(p, p.capitalize()) for p in s.split("+")
     )
+
+
+# ── Custom actions (Phase 5) ──────────────────────────────────────────────────
+# Each entry: {label, instruction, usage, last_used}
+# Sorted by usage descending so most-used appear first.
+
+def load_custom_actions() -> list:
+    try:
+        if CUSTOM_ACTIONS_FILE.exists():
+            data = json.loads(CUSTOM_ACTIONS_FILE.read_text(encoding="utf-8"))
+            return sorted(data, key=lambda x: -x.get("usage", 0))
+    except Exception:
+        pass
+    return []
+
+
+def save_custom_action(instruction: str) -> None:
+    """Increment usage for a matching action or create a new entry."""
+    label = instruction.strip()[:40]
+    label = label[0].upper() + label[1:] if label else label
+    with _custom_actions_lock:
+        try:
+            data = []
+            if CUSTOM_ACTIONS_FILE.exists():
+                data = json.loads(CUSTOM_ACTIONS_FILE.read_text(encoding="utf-8"))
+            for entry in data:
+                if entry.get("instruction", "").lower() == instruction.strip().lower():
+                    entry["usage"]     = entry.get("usage", 0) + 1
+                    entry["last_used"] = time.strftime("%Y-%m-%d")
+                    break
+            else:
+                data.append({
+                    "label":       label,
+                    "instruction": instruction.strip(),
+                    "usage":       1,
+                    "last_used":   time.strftime("%Y-%m-%d"),
+                })
+            CUSTOM_ACTIONS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as e:
+            log(f"[CUSTOM] save failed: {e}")
+
+
+# ── Action rankings (Phase 5) ─────────────────────────────────────────────────
+# Keyed by context_type → {action_key: usage_count}
+# Written on every Insert/Copy so the menu sorts by actual use over time.
+
+def load_action_rankings() -> dict:
+    try:
+        if ACTION_RANKINGS_FILE.exists():
+            return json.loads(ACTION_RANKINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def record_action_used(context_type: str, action_key: str) -> None:
+    """Increment the usage count for (context_type, action_key)."""
+    with _rankings_lock:
+        try:
+            data = {}
+            if ACTION_RANKINGS_FILE.exists():
+                data = json.loads(ACTION_RANKINGS_FILE.read_text(encoding="utf-8"))
+            ctx = data.setdefault(context_type, {})
+            ctx[action_key] = ctx.get(action_key, 0) + 1
+            ACTION_RANKINGS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as e:
+            log(f"[RANKINGS] save failed: {e}")

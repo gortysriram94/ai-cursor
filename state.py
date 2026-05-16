@@ -4,6 +4,7 @@ Import and mutate these directly; do NOT reassign the containers themselves.
 """
 
 import subprocess
+import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -60,6 +61,22 @@ _log_stats = {
     "errors":   0,
     "provider": "none",
 }
+_stats_lock = threading.Lock()
+
+
+def _bump(key: str) -> None:
+    """Thread-safe increment for _log_stats counters."""
+    with _stats_lock:
+        _log_stats[key] += 1
+
+
+# ── Process log lock ──────────────────────────────────────────────────────────
+# Guards append/pop (ai.py background threads) vs clear/iterate (dashboard main thread).
+_process_log_lock = threading.Lock()
+
+# ── Proactive cache lock ───────────────────────────────────────────────────────
+# Guards the check-evict-reserve sequence in brain/proactive.py.
+_proactive_lock = threading.Lock()
 
 
 # ── Scroll-map / section navigation state ─────────────────────────────────────
