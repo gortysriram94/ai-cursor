@@ -486,6 +486,37 @@ CONTEXT_ACTIONS = {
                         ("Market Reaction","market_reaction"),
                         ("Trade Risks",    "trade_risks"),
                         ("Key Takeaways",  "key_takeaways")],
+    # ── Content-type specific (more specific than UI context) ─────────────────
+    "earnings_release":  [("Trade Thesis",   "trade_thesis"),   ("Sentiment",  "sentiment"),
+                          ("Key Metrics",    "key_takeaways"),  ("Bull/Bear",  "bull_bear"),
+                          ("Summarize",      "summarize")],
+    "market_news":       [("Sentiment",      "sentiment"),      ("Key Takeaways", "key_takeaways"),
+                          ("Bull/Bear",      "bull_bear"),      ("Summarize",  "summarize"),
+                          ("Trade Thesis",   "trade_thesis")],
+    "property_listing":  [("Client Summary", "client_summary"), ("Selling Points", "selling_points"),
+                          ("Instagram",      "instagram_caption_listing"), ("Investment", "investment_angle"),
+                          ("Luxury Rewrite", "luxury_tone")],
+    "buyer_inquiry":     [("Quick Reply",    "quick_reply_lead"), ("Qualify Buyer", "qualify_buyer"),
+                          ("Schedule",       "schedule_showing"), ("Follow-up", "open_house_followup"),
+                          ("Re-engage",      "re_engagement")],
+    "job_posting":       [("Summarize",      "summarize"),      ("Key Requirements", "key_takeaways"),
+                          ("Explain",        "explain"),        ("Improve",    "improve"),
+                          ("Shorter",        "shorter")],
+    "legal_contract":    [("Explain Simply", "explain_contract"), ("Key Risks", "contract_risks"),
+                          ("Client Summary", "client_summary"), ("Summarize",  "summarize"),
+                          ("Shorter",        "shorter")],
+    "code_snippet":      [("Explain",        "explain"),        ("Fix",        "fix"),
+                          ("Improve",        "improve"),        ("Options",    "options"),
+                          ("Canvas",         "canvas")],
+    "product_listing":   [("Pros & Cons",    "pros_cons"),      ("Summarize",  "summarize"),
+                          ("Review",         "review"),         ("Shorter",    "shorter"),
+                          ("Explain",        "explain")],
+    "research_report":   [("Key Takeaways",  "key_takeaways"),  ("Summarize",  "summarize"),
+                          ("Explain",        "explain"),        ("Shorter",    "shorter"),
+                          ("Improve",        "improve")],
+    "approval_item":     [("Summarize",      "summarize"),      ("Flag Risks", "flag_risks"),
+                          ("Explain",        "explain"),        ("Shorter",    "shorter"),
+                          ("Key Takeaways",  "key_takeaways")],
 }
 
 
@@ -706,39 +737,168 @@ def get_active_context() -> tuple[str, str]:
     return "", "generic"
 
 
-def detect_action(text: str, context: str = "generic") -> str:
-    """Suggest the best default action for the given text and context."""
-    t = text.lower()
+def detect_content_type(
+    text: str,
+    signals: "ContentSignals | None" = None,
+    market: str = "generic",
+    context_type: str = "generic",
+) -> tuple[str, float]:
+    """
+    Classify specific content type from text + signals.
+    Returns (content_type, confidence). More specific than context_type.
+    Rule-based only — instant, no LLM.
+    """
+    t = text.lower() if text else ""
+    words = len(text.split()) if text else 0
+
+    # ── Email signals (structural, highest priority) ──────────────────────────
+    if signals and signals.has_email_headers:
+        return "email_thread", 0.92
+    if signals and signals.has_quoted_thread and words < 500:
+        return "email_composition", 0.80
+
+    # ── Code ─────────────────────────────────────────────────────────────────
+    if signals and signals.has_code:
+        return "code_snippet", 0.92
+
+    # ── Earnings / Financial results ──────────────────────────────────────────
+    earnings_kw = ["earnings per share", "eps", "revenue", "guidance", "fiscal quarter",
+                   "beat estimates", "raised guidance", "quarterly results", "net income",
+                   "operating income", "year-over-year", "yoy"]
+    if sum(1 for kw in earnings_kw if kw in t) >= 2:
+        return "earnings_release", 0.88
+
+    # ── Market / Trading news ─────────────────────────────────────────────────
+    market_kw = ["nasdaq", "dow jones", "s&p 500", "market cap", "trading volume",
+                 "short interest", "options flow", "put/call", "bull case", "bear case"]
+    if sum(1 for kw in market_kw if kw in t) >= 2 or market == "trading":
+        return "market_news", 0.72
+
+    # ── Property listing ─────────────────────────────────────────────────────
+    listing_kw = ["bed", "bath", "sqft", "sq ft", "listing price", "mls",
+                  "year built", "garage", "square feet", "lot size", "hoa"]
+    if sum(1 for kw in listing_kw if kw in t) >= 2:
+        return "property_listing", 0.88
+
+    # ── Real estate lead / buyer inquiry ─────────────────────────────────────
+    lead_kw = ["interested in", "schedule a showing", "can we view",
+               "first-time buyer", "pre-approved", "down payment"]
+    if sum(1 for kw in lead_kw if kw in t) >= 1 and market == "real_estate":
+        return "buyer_inquiry", 0.82
+
+    # ── Job posting ───────────────────────────────────────────────────────────
+    job_kw = ["responsibilities", "qualifications", "years of experience",
+              "we are seeking", "you will be", "required skills", "apply now",
+              "job description", "compensation", "benefits package"]
+    if sum(1 for kw in job_kw if kw in t) >= 2:
+        return "job_posting", 0.85
+
+    # ── Legal contract ────────────────────────────────────────────────────────
+    legal_kw = ["whereas", "hereinafter", "party of the first", "shall be liable",
+                "terms and conditions", "agreement between", "indemnify",
+                "notwithstanding", "pursuant to", "the parties agree"]
+    if sum(1 for kw in legal_kw if kw in t) >= 2:
+        return "legal_contract", 0.88
+
+    # ── Product / E-commerce listing ──────────────────────────────────────────
+    product_kw = ["add to cart", "buy now", "in stock", "out of stock",
+                  "free shipping", "return policy", "customer reviews", "ships in"]
+    if sum(1 for kw in product_kw if kw in t) >= 1:
+        return "product_listing", 0.82
+
+    # ── Research / Academic ───────────────────────────────────────────────────
+    research_kw = ["abstract", "methodology", "conclusion", "references",
+                   "hypothesis", "findings", "study shows", "peer-reviewed", "citation"]
+    if sum(1 for kw in research_kw if kw in t) >= 2:
+        return "research_report", 0.80
+
+    # ── ERP approval item ─────────────────────────────────────────────────────
+    approval_kw = ["pending approval", "approve", "workflow", "submitted by",
+                   "awaiting review", "purchase order", "requisition", "po number"]
+    if sum(1 for kw in approval_kw if kw in t) >= 2:
+        return "approval_item", 0.80
+
+    # ── Fallback to UI context_type if meaningful ─────────────────────────────
+    if context_type and context_type not in ("generic", ""):
+        return context_type, 0.55
+
+    # ── Length-based fallback ─────────────────────────────────────────────────
+    if words > 300:
+        return "long_document", 0.35
+    if words < 50:
+        return "short_text", 0.35
+    return "generic", 0.25
+
+
+def detect_action(
+    text: str,
+    context: str = "generic",
+    content_type: str = "",
+    signals=None,
+) -> tuple[str, float]:
+    """
+    Returns (action_key, confidence).
+    content_type takes priority — it's more specific than context.
+    Confidence >= 0.75 → caller may auto-run without showing menu.
+    """
+    # ── Content-type based (most specific) ───────────────────────────────────
+    _CT_MAP: dict[str, tuple[str, float]] = {
+        "earnings_release":  ("trade_thesis",        0.90),
+        "market_news":       ("sentiment",            0.82),
+        "property_listing":  ("client_summary",       0.90),
+        "buyer_inquiry":     ("quick_reply_lead",     0.88),
+        "job_posting":       ("summarize",            0.80),
+        "legal_contract":    ("explain_contract",     0.88),
+        "email_thread":      ("reply",                0.85),
+        "email_composition": ("improve",              0.78),
+        "code_snippet":      ("explain",              0.85),
+        "product_listing":   ("pros_cons",            0.82),
+        "research_report":   ("key_takeaways",        0.82),
+        "approval_item":     ("summarize",            0.78),
+        "long_document":     ("summarize",            0.65),
+        "short_text":        ("reply",                0.55),
+    }
+    if content_type and content_type in _CT_MAP:
+        return _CT_MAP[content_type]
+
+    # ── Context-type fallback (existing logic, preserved) ────────────────────
     if context == "social":
-        return "caption" if len(text) < 200 else "summarize"
+        return ("caption", 0.72) if (text and len(text) < 200) else ("summarize", 0.65)
     if context == "design":
-        return "inspect" if not t else "polish"
+        return ("inspect", 0.70) if not text else ("polish", 0.65)
     if context == "video":
-        return "comment" if len(text) < 300 else "summarize"
+        return ("comment", 0.68) if (text and len(text) < 300) else ("summarize", 0.65)
     if context == "shopping":
-        return "pros_cons" if len(text) > 100 else "summarize"
+        return ("pros_cons", 0.72) if (text and len(text) > 100) else ("summarize", 0.60)
     if context == "real_estate_listing":
-        return "client_summary"
+        return "client_summary", 0.88
     if context == "real_estate_leads":
-        return "quick_reply_lead"
+        return "quick_reply_lead", 0.85
     if context == "real_estate_social":
-        return "instagram_caption_listing"
+        return "instagram_caption_listing", 0.82
     if context == "real_estate_legal":
-        return "explain_contract"
+        return "explain_contract", 0.85
     if context == "trading_social":
-        return "sentiment"
+        return "sentiment", 0.82
     if context == "trading_charts":
-        return "trade_thesis"
+        return "trade_thesis", 0.85
     if context == "trading_news":
-        return "market_impact"
+        return "market_impact", 0.80
     if context == "trading_journal":
-        return "journal_entry"
+        return "journal_entry", 0.78
     if context == "trading_research":
-        return "important_changes"
-    if len(text) > 500:
-        return "summarize"
-    if any(s in t for s in ["following up", "follow up", "follow-up", "checking in", "circling back"]):
-        return "follow_up"
+        return "important_changes", 0.78
+
+    # ── Text-signal fallback ──────────────────────────────────────────────────
+    if signals and signals.has_code:
+        return "explain", 0.75
+    if signals and signals.has_email_headers:
+        return "reply", 0.80
+    if text and len(text) > 500:
+        return "summarize", 0.60
+    t = text.lower() if text else ""
+    if any(s in t for s in ["following up", "follow up", "follow-up", "checking in"]):
+        return "follow_up", 0.65
     if "?" in text:
-        return "reply"
-    return "reply"
+        return "reply", 0.55
+    return "reply", 0.45

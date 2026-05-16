@@ -90,3 +90,9 @@ pending_update: dict | None = None   # {"version": "x.y.z", "url": "..."}
 # Each entry: {id, timestamp, date, action, app, input, output, provider, duration_ms, status}
 # status: "running" | "done" | "error"
 process_log: list = []
+
+# ── Proactive result cache ────────────────────────────────────────────────────
+# Keyed by content hash (md5 of first 400 chars of text).
+# Each entry: {action, result, content_type, timestamp, entities}
+# Set by proactive generation queue, consumed by menu/result window.
+proactive_cache: dict = {}

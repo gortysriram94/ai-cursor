@@ -23,7 +23,7 @@ from copy import deepcopy
 
 from log import log
 import state
-from context import classify_market, MARKET_CONTEXTS, _detect_context_type
+from context import classify_market, MARKET_CONTEXTS, _detect_context_type, detect_content_type
 from brain.signals import extract_signals, ContentSignals
 from brain.sections import detect_sections, find_current_section
 
@@ -36,6 +36,8 @@ class WorkingContext:
     window_title: str   = ""
     market:       str   = "generic"   # vertical for system prompt (sales, finance, …)
     context_type: str   = "generic"   # UI context for action buttons (email, chat, social, …)
+    content_type: str   = "generic"   # specific content type (earnings_release, property_listing, …)
+    content_type_conf: float = 0.0    # confidence of content_type detection
     situation:    str   = ""
     entities:     list  = field(default_factory=list)
     summary:      str   = ""
@@ -104,6 +106,8 @@ class ContextBrain:
         market, _    = classify_market(lookup, obs.visible_text[:500])
         context_type = _detect_context_type(obs.app_name, obs.window_title)
         signals      = extract_signals(obs.visible_text)
+        ctype, ctype_conf = detect_content_type(
+            obs.visible_text, signals, market, context_type)
         sections     = detect_sections(obs.visible_text, obs.app_name, obs.window_title)
 
         prev_ctx    = deepcopy(self._ctx) if self._ctx.app_name else self._ctx
@@ -111,8 +115,10 @@ class ContextBrain:
 
         self._ctx.app_name     = obs.app_name
         self._ctx.window_title = obs.window_title
-        self._ctx.market       = market
-        self._ctx.context_type = context_type
+        self._ctx.market            = market
+        self._ctx.context_type      = context_type
+        self._ctx.content_type      = ctype
+        self._ctx.content_type_conf = ctype_conf
         self._ctx.signals      = signals
         self._ctx.sections     = sections
         self._ctx.raw_text     = obs.visible_text

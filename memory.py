@@ -180,3 +180,51 @@ def get_recent_compacts(app_name: str = "", limit: int = 5) -> list[dict]:
         compacts = [c for c in compacts
                     if c.get("app", "").lower() == app_name.lower()]
     return compacts[:limit]
+
+
+def get_relevant_compacts(
+    content_type: str = "",
+    market: str = "",
+    entities: list | None = None,
+    limit: int = 5,
+    max_age_days: int = 30,
+) -> list[dict]:
+    """
+    Return compacts weighted by recency + content_type match + entity overlap.
+    Decays confidence on older compacts. More relevant than flat get_recent_compacts().
+    """
+    import time as _t
+    import math
+
+    all_compacts = load_compacts()
+    now = _t.time()
+    cutoff = now - (max_age_days * 86400)
+    entity_set = {str(e).lower() for e in (entities or [])}
+
+    scored: list[tuple[float, dict]] = []
+    for c in all_compacts:
+        ts = c.get("timestamp", 0)
+        if ts < cutoff:
+            continue
+
+        score = 0.0
+
+        # Recency — exponential decay, half-life = 7 days
+        age_days = (now - ts) / 86400
+        score += math.exp(-age_days / 7)
+
+        # Content type match
+        if content_type and c.get("content_type", "") == content_type:
+            score += 0.8
+        elif market and c.get("market", "") == market:
+            score += 0.4
+
+        # Entity overlap
+        c_entities = {str(e).lower() for e in c.get("entities", [])}
+        overlap = len(entity_set & c_entities)
+        score += overlap * 0.3
+
+        scored.append((score, c))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [c for _, c in scored[:limit]]

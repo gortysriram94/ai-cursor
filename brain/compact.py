@@ -18,6 +18,7 @@ class CompactRecord:
     task:       str   = ""          # "Replied to customer complaint"
     app:        str   = ""          # "Zendesk"
     market:     str   = "generic"   # market context
+    content_type: str = ""          # specific content type (earnings_release, property_listing, …)
     context:    str   = ""          # "John Mills · Order #4821 · 3 days overdue"
     outcome:    str   = ""          # "Response drafted and sent"
     entities:   list  = field(default_factory=list)
@@ -79,13 +80,14 @@ def generate_compact(prev_ctx, duration_s: int = 0) -> "CompactRecord | None":
         }
 
     record = CompactRecord(
-        task       = result.get("task", prev_ctx.situation)[:120],
-        app        = prev_ctx.app_name,
-        market     = prev_ctx.market,
-        context    = result.get("context", "")[:200],
-        outcome    = result.get("outcome", "")[:120],
-        entities   = _safe_entities(prev_ctx.entities),
-        duration_s = duration_s,
+        task         = result.get("task", prev_ctx.situation)[:120],
+        app          = prev_ctx.app_name,
+        market       = prev_ctx.market,
+        content_type = getattr(prev_ctx, "content_type", ""),
+        context      = result.get("context", "")[:200],
+        outcome      = result.get("outcome", "")[:120],
+        entities     = _safe_entities(prev_ctx.entities),
+        duration_s   = duration_s,
     )
     # Trigger rule learning in background — non-blocking
     import threading as _t

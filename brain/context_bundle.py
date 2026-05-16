@@ -19,6 +19,7 @@ class ContextBundle:
     app_name:     str   = ""
     context_type: str   = "generic"
     market:       str   = "generic"
+    content_type: str   = "generic"   # specific content type (earnings_release, property_listing, …)
     situation:    str   = ""
     entities:      list  = field(default_factory=list)
     confidence:    float = 0.0
@@ -31,6 +32,7 @@ class ContextBundle:
             app_name     = ctx.app_name,
             context_type = ctx.context_type,
             market       = ctx.market,
+            content_type = getattr(ctx, "content_type", "generic"),
             situation    = ctx.situation,
             entities     = ctx.entities,
             confidence   = ctx.confidence,

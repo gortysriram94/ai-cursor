@@ -1107,6 +1107,102 @@ def _universal_followup_prompt(
     )
 
 
+# ── Content-aware instruction builder ────────────────────────────────────────
+
+def build_content_aware_instruction(
+    action: str,
+    content_type: str,
+    entities: list,
+    market: str = "",
+) -> str:
+    """
+    Generate a specific, content-aware instruction instead of a generic one.
+    Falls back to the standard action template if no specific rule matches.
+    """
+    entity_str = ", ".join(str(e) for e in entities[:5]) if entities else ""
+
+    _SPECIFIC: dict[tuple[str, str], str] = {
+        ("trade_thesis",   "earnings_release"): (
+            f"This is an earnings release{' for ' + entity_str if entity_str else ''}. "
+            "Extract exactly:\n"
+            "BULL CASE: strongest reason to go long today (use actual numbers)\n"
+            "BEAR CASE: biggest risk to the trade (be specific)\n"
+            "KEY NUMBER: the single metric that drives today's move\n"
+            "WATCH: one intraday signal that would change the thesis\n"
+            "Be specific. Use the actual numbers from the release. No generic statements."
+        ),
+        ("sentiment",      "earnings_release"): (
+            f"Analyse sentiment in this earnings release{' for ' + entity_str if entity_str else ''}. "
+            "Return: SENTIMENT (bullish/bearish/neutral), MAGNITUDE (strong/moderate/weak), "
+            "KEY DRIVER (the one fact driving sentiment), RISK (what could flip it). "
+            "One sentence per item. Use actual numbers."
+        ),
+        ("client_summary", "property_listing"): (
+            f"This is a property listing{' for ' + entity_str if entity_str else ''}. "
+            "Write a 3-4 sentence client summary that: "
+            "1) leads with the strongest selling point, "
+            "2) mentions the key specs (beds/baths/sqft/price), "
+            "3) highlights one unique feature, "
+            "4) ends with a call to action. "
+            "Write as if presenting to a buyer. No generic phrases."
+        ),
+        ("explain_contract", "legal_contract"): (
+            "This is a legal contract clause. Explain it in plain English: "
+            "WHAT IT MEANS: one sentence anyone can understand. "
+            "KEY OBLIGATION: what each party must do. "
+            "RISK: what happens if this clause is violated. "
+            "RED FLAG: anything unusual or one-sided. "
+            "No legal jargon in the explanation."
+        ),
+        ("quick_reply_lead", "buyer_inquiry"): (
+            f"This is a buyer inquiry{' about ' + entity_str if entity_str else ''}. "
+            "Write a warm, professional reply that: "
+            "1) acknowledges their specific interest, "
+            "2) provides one piece of useful information, "
+            "3) suggests a next step (showing, call, more info). "
+            "Keep it under 100 words. Sound human, not templated."
+        ),
+        ("explain",        "code_snippet"): (
+            "Explain this code. Structure your answer as: "
+            "WHAT IT DOES: one sentence. "
+            "HOW IT WORKS: 2-3 key steps. "
+            "GOTCHAS: any edge cases, bugs, or performance concerns. "
+            "No padding. Assume the reader is a developer."
+        ),
+        ("pros_cons",      "product_listing"): (
+            "Analyse this product listing. Return: "
+            "PROS: 3 genuine advantages (use specific details from the listing). "
+            "CONS: 2-3 real concerns or missing information. "
+            "VERDICT: one sentence on whether it's worth considering. "
+            "Be honest and specific — not marketing copy."
+        ),
+        ("key_takeaways",  "research_report"): (
+            "Extract the key takeaways from this research. Return: "
+            "MAIN FINDING: the single most important conclusion. "
+            "SUPPORTING POINTS: 2-3 specific findings with numbers where available. "
+            "IMPLICATION: what this means in practice. "
+            "LIMITATION: one caveat or limitation to keep in mind."
+        ),
+        ("summarize",      "job_posting"): (
+            f"This is a job posting{' for ' + entity_str if entity_str else ''}. "
+            "Extract: "
+            "ROLE: title + company in one line. "
+            "MUST HAVES: the 3-4 non-negotiable requirements. "
+            "NICE TO HAVES: preferred qualifications. "
+            "RED FLAGS: anything unusual (clearance requirements, relocation, unusual hours). "
+            "COMPENSATION: if mentioned. "
+            "Be specific — use the actual words from the posting."
+        ),
+    }
+
+    key = (action, content_type)
+    if key in _SPECIFIC:
+        return _SPECIFIC[key]
+
+    # Fall back to standard action instruction
+    return ""
+
+
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
 def _build_retrieval_block(docs: list) -> str:
@@ -1168,7 +1264,17 @@ def build_prompt(text: str, action: str, tone: str,
             text, context_type, b.app_name, b.situation, b.confidence, b.signals)
 
     else:
-        action_prompt = ACTION_PROMPTS[action](text)
+        # Try content-aware instruction first (more specific than generic action template)
+        _bundle_content_type = getattr(bundle, "content_type", "") if bundle else ""
+        _bundle_entities = getattr(bundle, "entities", []) if bundle else []
+        _bundle_market = getattr(bundle, "market", "") if bundle else ""
+
+        specific_instruction = build_content_aware_instruction(
+            action, _bundle_content_type, _bundle_entities, _bundle_market)
+        if specific_instruction:
+            action_prompt = specific_instruction + f"\n\nContent:\n{text}"
+        else:
+            action_prompt = ACTION_PROMPTS[action](text)
 
     parts = [system, tone_instr]
     if retrieval_block:
