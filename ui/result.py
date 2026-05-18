@@ -946,30 +946,31 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
                 pass
             from telemetry import track
             track("result_inserted", {"action": action})
+            # Mark the matching process_log entry as user_approved
+            try:
+                from storage import append_audit_entry
+                from brain.action_schema import classify_risk
+                append_audit_entry({
+                    "app":         app_name or "",
+                    "action":      action,
+                    "risk_level":  classify_risk(action),
+                    "approval":    "user_approved",
+                    "result_preview": get_result()[:120].replace("\n", " "),
+                })
+            except Exception:
+                pass
             content = get_result()
 
-            # Capture the insert target NOW (at click time, not at hotkey-press time).
+            # Capture insert target at click time (not hotkey time)
             insert_hwnd = None
             if WIN32_AVAILABLE:
                 try:
                     import win32gui
-                    if target_hwnd and win32gui.IsWindow(target_hwnd):
-                        insert_hwnd = target_hwnd
-                    else:
-                        insert_hwnd = win32gui.GetForegroundWindow()
+                    insert_hwnd = target_hwnd if (
+                        target_hwnd and win32gui.IsWindow(target_hwnd)
+                    ) else win32gui.GetForegroundWindow()
                 except Exception:
                     pass
-
-            # Save original clipboard BEFORE overwriting — crash.py restores it on crash
-            try:
-                state._pre_insert_clipboard = pyperclip.paste() or ""
-            except Exception:
-                state._pre_insert_clipboard = ""
-
-            if not _clipboard_copy(content):
-                log("[INSERT] clipboard copy failed — aborting insert")
-                state._pre_insert_clipboard = ""
-                return
 
             threading.Thread(
                 target=lambda: save_style_sample(content, app_name),
@@ -977,27 +978,34 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
             ).start()
             win.withdraw()
             win.update()
-            if insert_hwnd and WIN32_AVAILABLE:
-                try:
-                    import win32gui
-                    win32gui.SetForegroundWindow(insert_hwnd)
-                except Exception:
-                    pass
-            time.sleep(0.25)
-            # Verify the target window is still in the foreground — user may have
-            # switched windows during the sleep, which would paste into the wrong app.
-            safe_to_paste = True
-            if insert_hwnd and WIN32_AVAILABLE:
-                try:
-                    import win32gui
-                    if win32gui.GetForegroundWindow() != insert_hwnd:
-                        safe_to_paste = False
-                        log("[INSERT] focus changed during sleep — paste cancelled")
-                except Exception:
-                    pass
-            if safe_to_paste:
-                pyautogui.hotkey("ctrl", "v")
-            state._pre_insert_clipboard = ""   # done — crash.py no longer needs to restore
+
+            # Save clipboard for crash recovery
+            try:
+                state._pre_insert_clipboard = pyperclip.paste() or ""
+            except Exception:
+                state._pre_insert_clipboard = ""
+
+            # Execute via the verified insert pipeline (rate limiter + focus guard + verify)
+            from plat.executor import verified_insert
+            from brain import rollback as _rollback
+            _before = _rollback.save_state("insert")
+            try:
+                result_exec = verified_insert(content, target_hwnd=insert_hwnd)
+            except Exception as _e:
+                _rollback.restore_state(_before)
+                raise
+
+            state._pre_insert_clipboard = ""   # crash.py no longer needs to restore
+
+            if not result_exec.success:
+                _rollback.restore_state(_before)
+                log(f"[INSERT] failed: {result_exec.error}")
+                win.deiconify()   # show window again so user can retry
+                return
+
+            if not result_exec.verified:
+                log("[INSERT] completed but focus verification inconclusive")
+
             win.destroy()
 
         tk.Frame(body_frame, bg=R_BORDER, height=1).pack(fill="x")

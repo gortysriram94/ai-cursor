@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from brain.context_brain import WorkingContext
+    from brain.action_schema import ActionPlan
+    from brain.approval_chain import ApprovalChain
 
 # ── Hover detection state (legacy — kept for hover highlight) ─────────────────
 
@@ -138,3 +140,22 @@ approval_pending: "dict | None" = None
 # Consumed by brain/proactive.py — overrides confidence threshold + action.
 # Schema: {id, label, action}  |  None when no task is pending.
 scheduled_task_pending: "dict | None" = None
+
+# ── Active multi-step plan ────────────────────────────────────────────────────
+# Set by brain/proactive.py when a plan is generated for the current content.
+# Cleared when all steps are completed or the user dismisses the plan.
+active_plan: "ActionPlan | None" = None
+
+# ── Active approval chain ─────────────────────────────────────────────────────
+# Set by brain/proactive.py for content types requiring step-by-step approval.
+# Each step must be Approved or Skipped before the chain advances.
+active_chain: "ApprovalChain | None" = None
+
+# ── Autonomous mode ───────────────────────────────────────────────────────────
+# When True, safe proactive results are auto-executed without showing the panel.
+# Loaded from prefs at startup; toggled via the AUTO button in the menu header.
+autonomous_mode: bool = False
+
+# ── Permission matrix cache ───────────────────────────────────────────────────
+# Loaded from brain/permissions.py at startup; checked before proactive generation.
+permissions: dict = {}

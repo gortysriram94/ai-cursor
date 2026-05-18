@@ -587,6 +587,24 @@ def call_ai_streaming(text: str, action: str, tone: str,
         _proc_entry["status"]      = "done"
         _proc_entry["provider"]    = state.last_ai_provider
         _proc_entry["duration_ms"] = _ms()
+
+        # Persist to audit log so history survives restarts
+        try:
+            from storage import append_audit_entry
+            from brain.action_schema import classify_risk
+            append_audit_entry({
+                "ts":             _proc_entry.get("timestamp", ""),
+                "app":            _proc_entry.get("app", ""),
+                "action":         _proc_entry.get("action", ""),
+                "risk_level":     classify_risk(_proc_entry.get("action", "")),
+                "approval":       _proc_entry.get("approval", "user_approved"),
+                "result_preview": (_proc_entry.get("output", "")[:120]).replace("\n", " "),
+                "provider":       state.last_ai_provider,
+                "duration_ms":    _proc_entry["duration_ms"],
+            })
+        except Exception:
+            pass
+
         _orig_on_done()
 
     def on_error():

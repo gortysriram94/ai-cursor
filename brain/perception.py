@@ -130,6 +130,12 @@ class PerceptionThread:
             text = self._safe_get_text(plat, window)
             self._last_content_ts = now
 
+            # Vision retry if UIA still returns nothing
+            if not text.strip() and not self._vision_running:
+                if now - self._last_vision_ts >= self.VISION_FALLBACK_COOLDOWN:
+                    self._start_vision_fallback(window)
+                return  # skip stale heartbeat
+
             if self._changed_significantly(text):
                 self._last_text = text
                 self._emit(window, text, "content_change")
@@ -209,7 +215,7 @@ class PerceptionThread:
                 def _err(): pass
 
                 call_ai_vision_streaming(
-                    img_b64, "inspect", _tok, _done, _err,
+                    img_b64, "custom", _tok, _done, _err,
                     custom_instruction=(
                         "Extract all readable text from this screenshot. "
                         "Return only the text content, no descriptions or labels."

@@ -902,3 +902,41 @@ def detect_action(
     if "?" in text:
         return "reply", 0.55
     return "reply", 0.45
+
+
+def recommend_action(
+    text: str,
+    context: str = "generic",
+    content_type: str = "",
+    signals=None,
+    usage_count: int = 0,
+    app_name: str = "",
+) -> "ActionRecommendation":
+    """
+    Full structured recommendation with risk, priority, and rationale.
+    Wraps detect_action() — all existing callers continue to work unchanged.
+
+    Returns an ActionRecommendation with:
+      .action_key   — the action string (same as detect_action()[0])
+      .confidence   — detection confidence (same as detect_action()[1])
+      .priority     — multi-factor score (confidence + urgency + frequency - risk)
+      .risk_level   — "safe" | "review" | "caution"
+      .target       — preferred dispatch target
+      .rationale    — human-readable explanation (for logging/debug)
+    """
+    from brain.action_schema import ActionRecommendation
+    from brain.priority_queue import score_recommendation
+
+    action_key, confidence = detect_action(
+        text, context=context, content_type=content_type, signals=signals
+    )
+    rec = score_recommendation(
+        action_key   = action_key,
+        confidence   = confidence,
+        content_type = content_type or context,
+        signals      = signals,
+        usage_count  = usage_count,
+        app_name     = app_name,
+    )
+    rec.entities = []   # filled in by caller if available
+    return rec

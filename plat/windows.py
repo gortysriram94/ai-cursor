@@ -490,6 +490,15 @@ class WindowsPlatform(PlatformBase):
 
     def set_field_value(self, field: "object", value: str) -> bool:
         """Write value into the field using ValuePattern, falling back to keyboard."""
+        # Rate-limit form fill actions to prevent runaway automation
+        from plat.executor import get_rate_limiter
+        rl = get_rate_limiter()
+        if not rl.is_allowed():
+            from log import log
+            log(f"[EXECUTOR] form fill rate-limited ({rl.remaining} remaining)")
+            return False
+        rl.record()
+
         el = field.handle
         if not el:
             return False
@@ -535,3 +544,58 @@ class WindowsPlatform(PlatformBase):
                 _pg.click(cx, cy)
             except Exception:
                 pass
+
+    # ── General input ──────────────────────────────────────────────────────────
+
+    def click_at(self, x: int, y: int, verify: bool = True) -> bool:
+        """
+        Click at screen coordinates.
+        If verify=True, checks via UIA that the element at (x, y) is enabled
+        before clicking; returns False and skips the click if it is not.
+        """
+        if verify and _UIA and _uia:
+            try:
+                pt = ctypes.wintypes.POINT(x, y)
+                el = _uia.ElementFromPoint(pt)
+                if el and not el.CurrentIsEnabled:
+                    log(f"[PLATFORM] click_at({x},{y}): element disabled — skipped")
+                    return False
+            except Exception:
+                pass
+        try:
+            pyautogui.click(x, y)
+            time.sleep(0.1)
+            return True
+        except Exception as e:
+            log(f"[PLATFORM] click_at({x},{y}) failed: {e}")
+            return False
+
+    def type_text(self, text: str, target: "dict | None" = None) -> bool:
+        """
+        Type text into the focused element, or click target coords first.
+        target may be {"x": int, "y": int}.
+        """
+        try:
+            if target:
+                self.click_at(target["x"], target["y"], verify=False)
+                time.sleep(0.05)
+            pyautogui.typewrite(text, interval=0.01)
+            return True
+        except Exception as e:
+            log(f"[PLATFORM] type_text failed: {e}")
+            return False
+
+    def press_key(self, key: str, modifiers: "list[str] | None" = None) -> bool:
+        """
+        Press a key or key combo.
+        Example: press_key("v", modifiers=["ctrl"])
+        """
+        try:
+            if modifiers:
+                pyautogui.hotkey(*modifiers, key)
+            else:
+                pyautogui.press(key)
+            return True
+        except Exception as e:
+            log(f"[PLATFORM] press_key({key!r}) failed: {e}")
+            return False

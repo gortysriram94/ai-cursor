@@ -288,6 +288,44 @@ def _show_review_panel(root: tk.Tk, fields: list, cx: int, cy: int,
             tk.Label(lbl_row, text=colors[2], bg=colors[0], fg=colors[1],
                      font=("Segoe UI", 7), padx=5, pady=1).pack(side="right")
 
+        # Per-field approve/deny buttons for non-blocked PII fields
+        if pii_level not in ("none", "blocked"):
+            perm_row = tk.Frame(lbl_row, bg=_T["bg"] if False else _BG)
+            perm_row.pack(side="right", padx=(0, 4))
+
+            _field_ref = field
+
+            def _allow_field(f=_field_ref, row=perm_row):
+                f.pii_can_fill = True
+                f._user_approved = True
+                _app = getattr(window_info, "app_name", "") if window_info else ""
+                _lbl = f.label or f.placeholder or ""
+                if _app and _lbl:
+                    from storage import save_field_pref
+                    save_field_pref(_app, _lbl, True)
+                for w in row.winfo_children():
+                    w.configure(relief="sunken" if hasattr(w, "relief") else "flat")
+
+            def _deny_field(f=_field_ref, row=perm_row):
+                f.pii_can_fill = False
+                f._user_denied = True
+                _app = getattr(window_info, "app_name", "") if window_info else ""
+                _lbl = f.label or f.placeholder or ""
+                if _app and _lbl:
+                    from storage import save_field_pref
+                    save_field_pref(_app, _lbl, False)
+
+            allow_btn = tk.Label(perm_row, text="✓", bg=_ACCENT, fg=_BG,
+                                 font=("Segoe UI", 7), padx=4, pady=1,
+                                 cursor="hand2")
+            deny_btn  = tk.Label(perm_row, text="✕", bg="#E05C5C", fg=_BG,
+                                 font=("Segoe UI", 7), padx=4, pady=1,
+                                 cursor="hand2")
+            allow_btn.pack(side="left", padx=(0, 1))
+            deny_btn.pack(side="left")
+            allow_btn.bind("<Button-1>", lambda e, f=_field_ref: _allow_field(f))
+            deny_btn.bind( "<Button-1>", lambda e, f=_field_ref: _deny_field(f))
+
         # Input row
         entry_border = tk.Frame(row, bg=_BORDER, padx=1, pady=1)
         entry_border.pack(fill="x", pady=(2, 0))

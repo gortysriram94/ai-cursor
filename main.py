@@ -419,6 +419,27 @@ def main():
 
     threading.Thread(target=_startup_update_check, daemon=True, name="update-check").start()
 
+    # ── Restore audit log into process_log so Processes tab shows history ────
+    try:
+        from storage import load_audit_log, trim_audit_log
+        trim_audit_log()                          # prune before loading
+        _prior = load_audit_log(limit=100)
+        if _prior:
+            with state._process_log_lock:
+                state.process_log[:0] = list(reversed(_prior))   # prepend older entries
+            log(f"[AUDIT] restored {len(_prior)} prior entries")
+    except Exception as _ae:
+        log(f"[AUDIT] restore failed: {_ae}")
+
+    # ── Load permissions at startup ───────────────────────────────────────────
+    try:
+        from config import PERMISSIONS_FILE
+        from brain.permissions import load_permissions
+        state.permissions = load_permissions(PERMISSIONS_FILE)
+        log(f"[PERMISSIONS] loaded {len(state.permissions)} app rules")
+    except Exception as _pe:
+        log(f"[PERMISSIONS] load failed: {_pe}")
+
     # ── Autonomous observability ──────────────────────────────────────────────
     from observability import start_observability
     start_observability()
@@ -707,8 +728,7 @@ def main():
                 except Exception:
                     pass
 
-                # Auto-run: if the brain has a confident content type AND a
-                # proactive result is already cached, skip the menu entirely.
+                # Auto-run: proactive cache hit + safety gate passes → skip menu.
                 # Works with OR without selected text — just being on the page is enough.
                 _auto_ran = False
                 if ctx and not state.only_bundled_model:
@@ -721,22 +741,51 @@ def main():
                             _ph  = _hl.md5(_raw[:400].encode()).hexdigest()[:12]
                             _pe  = state.proactive_cache.get(_ph)
                             if _pe and _pe.get("status") == "ready" and _pe.get("result"):
-                                from ui.result import show_result_window
-                                from brain.context_bundle import ContextBundle
-                                from storage import get_pref as _gp
-                                _bundle = ContextBundle.from_working_context(ctx)
-                                _tone   = _gp(ctx.app_name, "tone", "professional") if ctx.app_name else "professional"
-                                show_result_window(
-                                    root, _raw[:2000], _pe["action"], _tone,
-                                    cx, cy,
-                                    target_hwnd=target_hwnd,
-                                    bundle=_bundle,
-                                    proactive_result=_pe["result"],
+                                # Safety gate: only auto-run if action is safe enough
+                                from context import recommend_action
+                                from brain.priority_queue import is_safe_to_autorun
+                                _rec = recommend_action(
+                                    _raw, content_type=_ctype,
+                                    signals=getattr(ctx, "signals", None),
                                 )
-                                state.menu_open = False
-                                state.proactive_hit_count += 1
-                                _auto_ran = True
-                                log(f"[AUTORUN] skipped menu — proactive hit for '{_pe['action']}'")
+                                # Permission matrix check (before risk scorer)
+                                from storage import check_permission
+                                _perm = check_permission(
+                                    ctx.app_name or "", _pe["action"]
+                                )
+
+                                if _perm == "block":
+                                    log(f"[AUTORUN] blocked by permission matrix — {ctx.app_name}/{_pe['action']}")
+                                elif _perm == "auto" or is_safe_to_autorun(_rec):
+                                    from ui.result import show_result_window
+                                    from brain.context_bundle import ContextBundle
+                                    from storage import get_pref as _gp, append_audit_entry
+                                    _bundle = ContextBundle.from_working_context(ctx)
+                                    _tone   = _gp(ctx.app_name, "tone", "professional") if ctx.app_name else "professional"
+                                    show_result_window(
+                                        root, _raw[:2000], _pe["action"], _tone,
+                                        cx, cy,
+                                        target_hwnd=target_hwnd,
+                                        bundle=_bundle,
+                                        proactive_result=_pe["result"],
+                                    )
+                                    state.menu_open = False
+                                    state.proactive_hit_count += 1
+                                    _auto_ran = True
+                                    log(f"[AUTORUN] {_pe['action']} perm={_perm} risk={_rec.risk_level} priority={_rec.priority:.2f}")
+                                    try:
+                                        from brain.action_schema import classify_risk
+                                        append_audit_entry({
+                                            "app":         ctx.app_name or "",
+                                            "action":      _pe["action"],
+                                            "risk_level":  classify_risk(_pe["action"]),
+                                            "approval":    "auto_approved",
+                                            "result_preview": _pe["result"][:120].replace("\n", " "),
+                                        })
+                                    except Exception:
+                                        pass
+                                else:
+                                    log(f"[AUTORUN] blocked — risk={_rec.risk_level} priority={_rec.priority:.2f} → showing menu")
 
                 if not _auto_ran:
                     try:

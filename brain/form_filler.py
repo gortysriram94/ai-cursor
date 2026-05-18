@@ -173,19 +173,23 @@ def fill_field(field: FormField, value: str) -> bool:
 
     from plat import platform as get_platform
     from security import redact_for_log
+    from brain import rollback as _rollback
     plat = get_platform()
+    _before = _rollback.save_state("type")
     try:
         plat.focus_field(field)
         ok = plat.set_field_value(field, value)
         if ok:
             field.filled        = True
             field.current_value = value
-            # Log label only — never log the actual value for any PII field
             if field.pii_level != "none":
                 log(f"[FORM] filled '{field.label}' [{field.pii_level} PII]")
             else:
                 log(f"[FORM] filled '{field.label}'")
+        else:
+            _rollback.restore_state(_before)
         return ok
     except Exception as e:
+        _rollback.restore_state(_before)
         log(f"[FORM] fill_field '{field.label}': {e}")
         return False

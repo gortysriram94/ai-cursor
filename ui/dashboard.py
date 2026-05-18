@@ -326,6 +326,24 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
     threading.Thread(target=_su_check_update, daemon=True).start()
     win.after(500, _su_poll_update)
 
+    # ── Autonomous mode ───────────────────────────────────────────────────────
+    section(su_inner, "Behaviour", top=14)
+    auto_card = card(su_inner, pady=10)
+    auto_row  = card_row(auto_card, "Autonomous Mode",
+                         "Safe results execute automatically without Alt+A")
+
+    def _get_auto():   return state.autonomous_mode
+    def _on_auto():
+        state.autonomous_mode = True
+        from storage import save_autonomous_mode
+        save_autonomous_mode(True)
+    def _off_auto():
+        state.autonomous_mode = False
+        from storage import save_autonomous_mode
+        save_autonomous_mode(False)
+
+    toggle_widget(auto_card, _get_auto, _on_auto, _off_auto)
+
     # ── AI Engine ─────────────────────────────────────────────────────────────
     section(su_inner, "AI Engine", top=14)
 
@@ -898,6 +916,35 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
             time_entry.bind("<Return>",   _make_time_save())
 
     _build_task_cards()
+
+    # ── Permissions ───────────────────────────────────────────────────────────
+    section(su_inner, "Action Permissions", top=20)
+
+    def _build_perm_cards():
+        from brain.permissions import load_permissions, save_permissions, _DEFAULTS
+        from config import PERMISSIONS_FILE
+        perms = load_permissions(PERMISSIONS_FILE)
+        all_apps = sorted(set(list(_DEFAULTS.keys()) + list(perms.keys())))
+
+        for app in all_apps:
+            app_card = card(su_inner, pady=10)
+            app_row = tk.Frame(app_card, bg=_T["panel"])
+            app_row.pack(fill="x")
+            tk.Label(app_row, text=app, bg=_T["panel"], fg=_T["fg"],
+                     font=("Segoe UI", 10, "bold"), anchor="w").pack(side="left")
+
+            app_perms = perms.get(app, {})
+            allow_str = ", ".join(app_perms.get("allow", [])) or "all"
+            deny_str  = ", ".join(app_perms.get("deny",  [])) or "none"
+
+            tk.Label(app_card, text=f"Allow: {allow_str}",
+                     bg=_T["panel"], fg=_T["dim"],
+                     font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(4, 0))
+            tk.Label(app_card, text=f"Deny: {deny_str}",
+                     bg=_T["panel"], fg=_T["muted"] if not app_perms.get("deny") else _T["danger"],
+                     font=("Segoe UI", 8), anchor="w").pack(anchor="w")
+
+    _build_perm_cards()
 
     # ═══════════════════════════════════════════════════════════════════════════
     # HOME  (first tab — welcome screen + live status)
