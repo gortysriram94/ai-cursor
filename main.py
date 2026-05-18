@@ -59,12 +59,53 @@ _HK_PREV    = 7   # Alt+[ — previous section
 
 def setup_ollama(root: tk.Tk) -> bool:
     from config import OLLAMA_EXE, OLLAMA_MODEL, NVIDIA_API_KEY
-    from ai import start_bundled_ollama, stop_bundled_ollama, is_model_pulled, get_vision_api
+    from ai import start_bundled_ollama, stop_bundled_ollama, is_model_pulled, get_ollama_api
 
     log(f"[OLLAMA] exe path: {OLLAMA_EXE}  exists={OLLAMA_EXE.exists()}")
+
     if not OLLAMA_EXE.exists():
-        log("[OLLAMA] Binary not found — skipping local AI")
-        return False
+        # Bundled binary missing (dev mode or installer not run).
+        # Check if a system-installed Ollama is already running or available.
+        log("[OLLAMA] Bundled binary not found — trying system Ollama")
+
+        if get_ollama_api():
+            log("[OLLAMA] System Ollama already running — using it")
+        else:
+            # Try to start the system-installed Ollama
+            import subprocess, shutil
+            system_ollama = shutil.which("ollama")
+            if system_ollama:
+                log(f"[OLLAMA] Starting system Ollama: {system_ollama}")
+                try:
+                    subprocess.Popen(
+                        [system_ollama, "serve"],
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                    # Wait up to 10 seconds for it to come up
+                    import time as _t
+                    for _ in range(20):
+                        _t.sleep(0.5)
+                        if get_ollama_api():
+                            log("[OLLAMA] System Ollama started successfully")
+                            break
+                    else:
+                        log("[OLLAMA] System Ollama did not respond in time")
+                except Exception as _e:
+                    log(f"[OLLAMA] Failed to start system Ollama: {_e}")
+            else:
+                log("[OLLAMA] No Ollama found — local AI unavailable")
+
+        # Even without the bundled binary, check model state
+        try:
+            from ai import mark_bundled_model_ready
+            mark_bundled_model_ready()
+        except Exception:
+            pass
+
+        if not is_model_pulled():
+            state.is_first_run = True
+
+        return bool(get_ollama_api())
 
     print("[OLLAMA] Starting bundled instance…")
     if not start_bundled_ollama():
