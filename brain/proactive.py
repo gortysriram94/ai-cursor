@@ -32,11 +32,18 @@ def maybe_generate(
     entities: list | None = None,
 ) -> None:
     """Trigger proactive generation if conditions are met. Non-blocking."""
-    if ctype_conf < CONF_THRESHOLD or content_type == "generic":
-        return
     if state.only_bundled_model:
         return
     if len(text.strip()) < 80:
+        return
+
+    # Scheduled task pending — override confidence threshold and action
+    _task = state.scheduled_task_pending
+    if _task:
+        # Accept any content (threshold dropped to 0.3) when a task is waiting
+        if ctype_conf < 0.3 and content_type == "generic":
+            return
+    elif ctype_conf < CONF_THRESHOLD or content_type == "generic":
         return
 
     content_hash = hashlib.md5(text[:400].encode()).hexdigest()[:12]
@@ -73,9 +80,15 @@ def maybe_generate(
             "status":          "generating",
         }
 
+    # Consume the scheduled task flag before spawning so it can't fire twice
+    _task_snapshot = state.scheduled_task_pending
+    if _task_snapshot:
+        state.scheduled_task_pending = None
+
     threading.Thread(
         target=_generate,
-        args=(content_hash, text, app_name, content_type, signals, list(entities or [])),
+        args=(content_hash, text, app_name, content_type, signals,
+              list(entities or []), _task_snapshot),
         daemon=True,
         name=f"proactive-{content_hash[:6]}",
     ).start()
@@ -88,6 +101,7 @@ def _generate(
     content_type: str,
     signals,
     entities: list,
+    task: "dict | None" = None,
 ) -> None:
     try:
         from context import detect_action
@@ -95,7 +109,11 @@ def _generate(
         from brain.context_bundle import ContextBundle
         from providers.registry import complete_with_fallback
 
-        action, _ = detect_action(text, content_type=content_type, signals=signals)
+        # Scheduled task overrides the detected action
+        if task and task.get("action"):
+            action = task["action"]
+        else:
+            action, _ = detect_action(text, content_type=content_type, signals=signals)
 
         jina_ctx  = _fetch_jina_context(content_type, entities)
         full_text = text[:MAX_TEXT]
@@ -125,11 +143,31 @@ def _generate(
                 "status":          "ready" if result else "error",
             })
             log(f"[PROACTIVE] '{action}' ready for {content_type} ({len(result)} chars)")
+            state.proactive_gen_count += 1 if result else 0
+            if not result:
+                state.proactive_err_count += 1
+
+        if result:
+            try:
+                import tray
+                action_label = action.replace("_", " ").title()
+                if task and task.get("label"):
+                    title = f"⚡ {task['label']}"
+                    body  = f"{action_label} ready — press Alt+A to review."
+                else:
+                    title = f"⚡ {action_label} ready"
+                    body  = "Press Alt+A — no menu, result appears instantly."
+                tray.notify(title, body)
+            except Exception:
+                pass
 
     except Exception as e:
         log(f"[PROACTIVE] generation failed: {e}")
         if content_hash in state.proactive_cache:
             state.proactive_cache[content_hash]["status"] = "error"
+        state.proactive_err_count += 1
+        from telemetry import capture_exception
+        capture_exception(e, "proactive_generate")
 
 
 # ── Jina context fetch ────────────────────────────────────────────────────────

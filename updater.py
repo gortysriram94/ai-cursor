@@ -82,9 +82,18 @@ def download_and_apply(url: str, version: str,
     threading.Thread(target=_run, daemon=True).start()
 
 
+def open_release_page() -> None:
+    """Open GitHub releases in the browser — used for macOS update flow."""
+    import webbrowser
+    webbrowser.open(f"https://github.com/{REPO}/releases/latest")
+
+
 def apply_update(installer: Path, root=None):
-    """Quit the app, then run the installer silently. The installer relaunches the app."""
+    """Windows: silent installer. macOS: open releases page in browser."""
     import sys
+    if sys.platform == "darwin":
+        open_release_page()
+        return
     try:
         from storage import save_just_updated_flag
         save_just_updated_flag(str(installer.stem))  # version from filename

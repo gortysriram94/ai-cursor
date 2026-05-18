@@ -350,6 +350,11 @@ def main():
     )
     atexit.register(_tray.stop)
 
+    # ── Telemetry (Sentry + PostHog) — opt-in, off by default ───────────────────
+    from telemetry import init_sentry, track, track_second_use
+    init_sentry()
+    track_second_use()   # fires on 2nd calendar day — tracks day-1 retention
+
     setup_ollama(root)
 
     # Start background auto-download queue (lowest → highest size, skips done/stopped)
@@ -373,6 +378,68 @@ def main():
 
     threading.Thread(target=_startup_update_check, daemon=True, name="update-check").start()
 
+    # ── Autonomous observability ──────────────────────────────────────────────
+    from observability import start_observability
+    start_observability()
+
+    # ── Scheduled task engine ─────────────────────────────────────────────────
+    from scheduler import start_scheduler
+    start_scheduler()
+
+    # ── Proactive nudge thread ────────────────────────────────────────────────
+    # Watches for: same window > 5 min + actionable content + cached result.
+    # When all three are true, fires a tray notification nudging the user to
+    # press Alt+A. This is the "assistant that reaches out" behaviour.
+    def _nudge_loop():
+        import time as _time
+        import hashlib as _hl
+        _last_hash  = [""]   # content hash of last notification sent
+        _DWELL      = 300    # seconds on same content before nudging
+        _INTERVAL   = 30     # how often to check
+
+        while True:
+            _time.sleep(_INTERVAL)
+            try:
+                if state.menu_open or state.only_bundled_model:
+                    continue
+                ctx = state.working_context
+                if not ctx or not state.context_ready or not ctx.raw_text:
+                    continue
+
+                # Must have been on the same content for at least _DWELL seconds
+                dwell = _time.time() - ctx.last_updated
+                if dwell < _DWELL:
+                    continue
+
+                # Must be identifiable content with decent confidence
+                ctype = getattr(ctx, "content_type", "generic")
+                cconf = getattr(ctx, "content_type_conf", 0.0)
+                if ctype == "generic" or cconf < 0.6:
+                    continue
+
+                # Must have a cached proactive result ready
+                h     = _hl.md5(ctx.raw_text[:400].encode()).hexdigest()[:12]
+                entry = state.proactive_cache.get(h)
+                if not entry or entry.get("status") != "ready" or not entry.get("result"):
+                    continue
+
+                # Don't re-notify for the same content
+                if h == _last_hash[0]:
+                    continue
+
+                _last_hash[0] = h
+                action_label  = entry.get("action", "").replace("_", " ").title()
+                ctype_label   = ctype.replace("_", " ")
+                _tray.notify(
+                    f"⚡ {action_label} ready",
+                    f"You've been reading this {ctype_label} — press Alt+A to review.",
+                )
+                log(f"[NUDGE] fired for '{entry.get('action')}' on {ctype}")
+            except Exception as _ne:
+                log(f"[NUDGE] error: {_ne}")
+
+    threading.Thread(target=_nudge_loop, daemon=True, name="nudge").start()
+
     # ── Ollama watchdog ───────────────────────────────────────────────────────
     from ai import start_ollama_watchdog
     start_ollama_watchdog()
@@ -386,6 +453,8 @@ def main():
         get_providers()   # triggers _build_defaults() once, here, safely
     except Exception as _reg_err:
         log(f"[REGISTRY] pre-build failed: {_reg_err}")
+        from telemetry import capture_exception
+        capture_exception(_reg_err, "registry_prebuild")
 
     # ── Enterprise connections ────────────────────────────────────────────────
     try:
@@ -456,17 +525,28 @@ def main():
         from ui.dashboard import show_dashboard
         root.after(1000, lambda: show_dashboard(root, initial_tab="home"))
 
-    # ── First-install: open dashboard automatically ───────────────────────────
+    # ── First-install / first-run: show onboarding, else mark ready ─────────────
     from storage import is_first_install, mark_installed
-    if is_first_install():
+    _is_fresh_install = is_first_install()
+    if _is_fresh_install:
         mark_installed()
-        from ui.dashboard import show_dashboard
-        root.after(800, lambda: show_dashboard(root, initial_tab="setup"))
-    elif state.is_first_run:
-        from ui.dashboard import show_dashboard
-        root.after(800, lambda: show_dashboard(root, initial_tab="setup"))
-    else:
-        # Already set up — mark tray as ready immediately
+
+    if (_is_fresh_install or state.is_first_run) and not _updated_ver:
+        from ui.onboarding import show_onboarding
+
+        def _after_onboarding(skipped: bool):
+            from ui.dashboard import show_dashboard
+            if skipped:
+                # Lite mode: open dashboard so user sees the lite-mode banner
+                root.after(100, lambda: show_dashboard(root, initial_tab="home"))
+            else:
+                # First capable model ready — open dashboard home
+                _tray.set_state("ready")
+                _tray.notify("AI Cursor is ready", "Press Alt+A to start")
+                root.after(100, lambda: show_dashboard(root, initial_tab="home"))
+
+        root.after(500, lambda: show_onboarding(root, _after_onboarding))
+    elif not _updated_ver:
         _tray.set_state("ready")
         _tray.notify("AI Cursor is ready", "Press Alt+A to start")
 
@@ -531,6 +611,9 @@ def main():
 
             if hk == _HK_MENU:
                 log(f"[HOTKEY] Alt+A fired — menu_open={state.menu_open} cooldown_ok={_time.monotonic() - _menu_close_ts[0] >= _REOPEN_COOLDOWN}")
+                from telemetry import track_first_alt_a
+                track_first_alt_a()
+                track("alt_a_fired")
 
             if hk == _HK_MENU and not state.menu_open and (
                     _time.monotonic() - _menu_close_ts[0] >= _REOPEN_COOLDOWN):
@@ -583,31 +666,36 @@ def main():
                 except Exception:
                     pass
 
-                # Auto-run: proactive cache hit + high-confidence selection → skip panel
+                # Auto-run: if the brain has a confident content type AND a
+                # proactive result is already cached, skip the menu entirely.
+                # Works with OR without selected text — just being on the page is enough.
                 _auto_ran = False
-                if _fresh_selection and ctx and not state.only_bundled_model:
+                if ctx and not state.only_bundled_model:
                     _ctype_conf = getattr(ctx, "content_type_conf", 0.0)
                     _ctype      = getattr(ctx, "content_type", "generic")
                     if _ctype_conf >= 0.75 and _ctype != "generic":
                         import hashlib as _hl
-                        _ph  = _hl.md5(ctx.raw_text[:400].encode()).hexdigest()[:12]
-                        _pe  = state.proactive_cache.get(_ph)
-                        if _pe and _pe.get("status") == "ready" and _pe.get("result"):
-                            from ui.result import show_result_window
-                            from brain.context_bundle import ContextBundle
-                            from storage import get_pref as _gp
-                            _bundle = ContextBundle.from_working_context(ctx)
-                            _tone   = _gp(ctx.app_name, "tone", "professional") if ctx.app_name else "professional"
-                            show_result_window(
-                                root, ctx.raw_text[:2000], _pe["action"], _tone,
-                                cx, cy,
-                                target_hwnd=target_hwnd,
-                                bundle=_bundle,
-                                proactive_result=_pe["result"],
-                            )
-                            state.menu_open = False
-                            _auto_ran = True
-                            log(f"[AUTORUN] skipped menu — proactive hit for '{_pe['action']}'")
+                        _raw = ctx.raw_text or ""
+                        if _raw:
+                            _ph  = _hl.md5(_raw[:400].encode()).hexdigest()[:12]
+                            _pe  = state.proactive_cache.get(_ph)
+                            if _pe and _pe.get("status") == "ready" and _pe.get("result"):
+                                from ui.result import show_result_window
+                                from brain.context_bundle import ContextBundle
+                                from storage import get_pref as _gp
+                                _bundle = ContextBundle.from_working_context(ctx)
+                                _tone   = _gp(ctx.app_name, "tone", "professional") if ctx.app_name else "professional"
+                                show_result_window(
+                                    root, _raw[:2000], _pe["action"], _tone,
+                                    cx, cy,
+                                    target_hwnd=target_hwnd,
+                                    bundle=_bundle,
+                                    proactive_result=_pe["result"],
+                                )
+                                state.menu_open = False
+                                state.proactive_hit_count += 1
+                                _auto_ran = True
+                                log(f"[AUTORUN] skipped menu — proactive hit for '{_pe['action']}'")
 
                 if not _auto_ran:
                     try:
@@ -624,6 +712,8 @@ def main():
                         # Alt+A is not permanently blocked.
                         state.menu_open = False
                         log(f"[MENU] show_menu crashed — menu_open reset: {_menu_err}")
+                        from telemetry import capture_exception
+                        capture_exception(_menu_err, "show_menu")
                         # Destroy any orphaned toplevels left by the crash
                         for _w in root.winfo_children():
                             try:

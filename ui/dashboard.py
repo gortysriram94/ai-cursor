@@ -800,12 +800,143 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
 
     toggle_widget(c, load_flame_cursor, _su_cursor_on, _su_cursor_off)
 
+    # ── Scheduled Tasks ───────────────────────────────────────────────────────
+    section(su_inner, "Scheduled Tasks")
+    tk.Label(su_inner,
+             text="Run the AI automatically at set times — no Alt+A needed.",
+             bg=_T["bg"], fg=_T["muted"],
+             font=("Segoe UI", 8)).pack(anchor="w", padx=16, pady=(0, 8))
+
+    def _build_task_cards():
+        from storage import load_scheduled_tasks, save_scheduled_tasks
+        tasks = load_scheduled_tasks()
+
+        _DAY_SHORT = {"mon":"M","tue":"T","wed":"W","thu":"T","fri":"F","sat":"S","sun":"S"}
+
+        for task in tasks:
+            tc = card(su_inner, pady=12)
+            top_row = tk.Frame(tc, bg=_T["panel"])
+            top_row.pack(fill="x")
+
+            # Toggle
+            _enabled = [task.get("enabled", False)]
+            dot = tk.Label(top_row,
+                           text="●" if _enabled[0] else "○",
+                           bg=_T["panel"],
+                           fg=_T["accent"] if _enabled[0] else _T["muted"],
+                           font=("Segoe UI", 11), cursor="hand2")
+            dot.pack(side="left", padx=(0, 10))
+
+            info = tk.Frame(top_row, bg=_T["panel"])
+            info.pack(side="left", fill="x", expand=True)
+            tk.Label(info, text=task["name"],
+                     bg=_T["panel"], fg=_T["fg"],
+                     font=("Segoe UI", 9, "bold")).pack(anchor="w")
+            tk.Label(info, text=task.get("description", ""),
+                     bg=_T["panel"], fg=_T["muted"],
+                     font=("Segoe UI", 8), wraplength=300,
+                     justify="left").pack(anchor="w")
+
+            # Time entry
+            time_frame = tk.Frame(top_row, bg=_T["panel"])
+            time_frame.pack(side="right", padx=(8, 0))
+            time_entry = tk.Entry(time_frame,
+                                  bg=_T["panel2"], fg=_T["fg"],
+                                  insertbackground=_T["fg"],
+                                  relief="flat", bd=0,
+                                  font=("Segoe UI", 9), width=6,
+                                  justify="center")
+            time_entry.insert(0, task.get("time", "08:00"))
+            time_entry.pack(ipady=4, padx=4)
+
+            # Days chips
+            days_row = tk.Frame(tc, bg=_T["panel"])
+            days_row.pack(anchor="w", pady=(6, 0))
+            for day in ["mon","tue","wed","thu","fri","sat","sun"]:
+                active = day in task.get("days", [])
+                tk.Label(days_row,
+                         text=_DAY_SHORT[day],
+                         bg=_T["accent"] if active else _T["panel2"],
+                         fg="#1A1611" if active else _T["muted"],
+                         font=("Segoe UI", 7, "bold"),
+                         padx=5, pady=2).pack(side="left", padx=1)
+
+            def _make_toggle(t=task, d=dot, e=time_entry):
+                def _toggle(ev=None):
+                    from storage import load_scheduled_tasks, save_scheduled_tasks
+                    all_tasks = load_scheduled_tasks()
+                    for _t in all_tasks:
+                        if _t["id"] == t["id"]:
+                            _t["enabled"] = not _t.get("enabled", False)
+                            # Also save current time value
+                            _t["time"] = e.get().strip() or _t["time"]
+                            t["enabled"] = _t["enabled"]
+                    save_scheduled_tasks(all_tasks)
+                    now_on = t["enabled"]
+                    d.configure(text="●" if now_on else "○",
+                                fg=_T["accent"] if now_on else _T["muted"])
+                return _toggle
+
+            def _make_time_save(t=task, e=time_entry):
+                def _save(ev=None):
+                    val = e.get().strip()
+                    import re
+                    if not re.match(r"^\d{2}:\d{2}$", val):
+                        e.delete(0, "end")
+                        e.insert(0, t.get("time", "08:00"))
+                        return
+                    from storage import load_scheduled_tasks, save_scheduled_tasks
+                    all_tasks = load_scheduled_tasks()
+                    for _t in all_tasks:
+                        if _t["id"] == t["id"]:
+                            _t["time"] = val
+                    save_scheduled_tasks(all_tasks)
+                return _save
+
+            dot.bind("<Button-1>", _make_toggle())
+            time_entry.bind("<FocusOut>", _make_time_save())
+            time_entry.bind("<Return>",   _make_time_save())
+
+    _build_task_cards()
+
     # ═══════════════════════════════════════════════════════════════════════════
     # HOME  (first tab — welcome screen + live status)
     # ═══════════════════════════════════════════════════════════════════════════
     home = make_frame("home")
     h_outer, h_inner = scrollable(home)
     h_outer.pack(fill="both", expand=True)
+
+    # ── Lite mode banner (shown when user skipped onboarding) ─────────────────
+    try:
+        from ui.onboarding import is_lite_mode_banner_active, clear_lite_mode_banner
+        if is_lite_mode_banner_active():
+            _lm = tk.Frame(h_inner, bg="#1A1208", padx=14, pady=10)
+            _lm.pack(fill="x", pady=(0, 4))
+            tk.Frame(_lm, bg="#E8A838", width=2).pack(side="left", fill="y", padx=(0, 10))
+            tk.Label(_lm,
+                     text="⚠  Lite mode — responses may be limited",
+                     bg="#1A1208", fg="#F0EAE0",
+                     font=("Segoe UI", 9, "bold")).pack(side="left")
+            tk.Label(_lm,
+                     text="Full model downloading in background.",
+                     bg="#1A1208", fg="#C8BEB0",
+                     font=("Segoe UI", 8)).pack(side="left", padx=(10, 0))
+            def _check_lite_mode_clear():
+                from models import MODELS
+                from storage import load_downloaded_models
+                downloaded = load_downloaded_models()
+                capable = [m for m in MODELS
+                           if not m.get("bundled") and m["id"] in downloaded
+                           and m.get("category") == "main"]
+                if capable:
+                    clear_lite_mode_banner()
+                    try: _lm.destroy()
+                    except Exception: pass
+                elif win.winfo_exists():
+                    win.after(5000, _check_lite_mode_clear)
+            win.after(5000, _check_lite_mode_clear)
+    except Exception:
+        pass
 
     # ── Update banner ─────────────────────────────────────────────────────────
     def _show_update_banner(info: dict):
@@ -818,12 +949,19 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         _prog_lbl = tk.Label(banner, text="", bg="#1E1A15", fg=_T["muted"],
                              font=("Segoe UI", 8))
         _prog_lbl.pack(side="left", padx=(8, 0))
-        _dl_btn = tk.Label(banner, text="Download & Install",
+        import sys as _sys
+        _is_mac = _sys.platform == "darwin"
+        _btn_text = "View Release" if _is_mac else "Download & Install"
+        _dl_btn = tk.Label(banner, text=_btn_text,
                            bg=_T["accent"], fg="#1A1611",
                            font=("Segoe UI", 8, "bold"), padx=10, pady=4, cursor="hand2")
         _dl_btn.pack(side="right")
 
         def _start_dl(e):
+            if _is_mac:
+                from updater import open_release_page
+                open_release_page()
+                return
             from updater import download_and_apply, apply_update
             _dl_btn.configure(text="Downloading…", bg=_T["panel2"], cursor="", fg=_T["dim"])
             _dl_btn.unbind("<Button-1>")
@@ -1064,6 +1202,92 @@ def show_dashboard(root: tk.Tk, initial_tab: str = "home"):
         win.after(0, _apply)
 
     threading.Thread(target=_poll_status, daemon=True).start()
+
+    # ── System Health card ────────────────────────────────────────────────────
+    health_card = tk.Frame(h_inner, bg=_T["panel"], padx=14, pady=10)
+    health_card.pack(fill="x", padx=16, pady=(4, 0))
+
+    tk.Label(health_card, text="System Health",
+             bg=_T["panel"], fg=_T["fg"],
+             font=("Segoe UI", 9, "bold")).pack(anchor="w")
+
+    health_row = tk.Frame(health_card, bg=_T["panel"])
+    health_row.pack(fill="x", pady=(6, 0))
+
+    _h_labels = {}
+    for key, display in [
+        ("perception",  "Perception"),
+        ("brain",       "Brain"),
+        ("proactive",   "Proactive"),
+        ("provider",    "Provider"),
+    ]:
+        col = tk.Frame(health_row, bg=_T["panel"])
+        col.pack(side="left", expand=True)
+        tk.Label(col, text=display, bg=_T["panel"], fg=_T["muted"],
+                 font=("Segoe UI", 7)).pack()
+        dot = tk.Label(col, text="●", bg=_T["panel"], fg=_T["muted"],
+                       font=("Segoe UI", 14))
+        dot.pack()
+        sub = tk.Label(col, text="—", bg=_T["panel"], fg=_T["muted"],
+                       font=("Segoe UI", 7))
+        sub.pack()
+        _h_labels[key] = (dot, sub)
+
+    anomaly_lbl = tk.Label(health_card, text="",
+                           bg=_T["panel"], fg=_T["danger"],
+                           font=("Segoe UI", 8))
+    anomaly_lbl.pack(anchor="w", pady=(4, 0))
+
+    def _poll_health():
+        if not win.winfo_exists():
+            return
+        m = state.obs_metrics
+        if not m:
+            win.after(2000, _poll_health)
+            return
+
+        threads = m.get("threads", {})
+        obs_r   = m.get("obs_rate_1m", 0)
+        br      = m.get("brain_ready_rate", 0)
+        errs    = m.get("proactive_err_1m", 0)
+        gens    = m.get("proactive_gen_1m", 0)
+
+        def _color(ok): return "#4a8c5c" if ok else _T["danger"]
+
+        # Perception
+        perc_ok = threads.get("perception", False) and obs_r > 0.5
+        _h_labels["perception"][0].configure(fg=_color(perc_ok))
+        _h_labels["perception"][1].configure(
+            text=f"{obs_r:.0f}/min", fg=_color(perc_ok))
+
+        # Brain
+        brain_ok = threads.get("context_brain", False) and br >= 0.5
+        _h_labels["brain"][0].configure(fg=_color(brain_ok))
+        _h_labels["brain"][1].configure(
+            text=f"{br:.0%} ready", fg=_color(brain_ok))
+
+        # Proactive
+        pro_ok = errs == 0
+        _h_labels["proactive"][0].configure(fg=_color(pro_ok))
+        _h_labels["proactive"][1].configure(
+            text=f"{gens} gen · {errs} err", fg=_color(pro_ok))
+
+        # Provider
+        prov = state.last_ai_provider or "none"
+        lat  = state.last_ai_latency_ms
+        prov_ok = prov not in ("none", "") and lat < 10000
+        _h_labels["provider"][0].configure(fg=_color(prov_ok))
+        _h_labels["provider"][1].configure(
+            text=f"{prov} {lat}ms" if lat else prov, fg=_color(prov_ok))
+
+        # Anomalies
+        anomalies = m.get("anomalies", [])
+        anomaly_lbl.configure(
+            text=f"⚠  {anomalies[0]}" if anomalies else "")
+
+        win.after(5000, _poll_health)
+
+    win.after(2000, _poll_health)
 
     # ── Alt+A call-to-action ──────────────────────────────────────────────────
     cta = tk.Frame(h_inner, bg=_T["panel2"], padx=0, pady=12)

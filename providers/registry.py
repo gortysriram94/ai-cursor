@@ -113,11 +113,14 @@ def set_active_ollama_model(model_id: str) -> None:
     from .ollama import OllamaProvider
     from config import OLLAMA_VISION
     from storage import save_active_model
+    _prev = next((p.model for p in _providers if p.name == "Ollama"), "")
     get_providers()
     _providers[:] = [p for p in _providers if p.name != "Ollama"]
     _providers.append(OllamaProvider(model_id, OLLAMA_VISION))
     save_active_model(model_id)
     log(f"[REGISTRY] switched Ollama model → {model_id}")
+    from telemetry import track
+    track("model_switch", {"from": _prev, "to": model_id})
 
 
 def stream_with_fallback(

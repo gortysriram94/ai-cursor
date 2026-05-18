@@ -129,6 +129,8 @@ MISTRAL_MODEL   = "mistral-small-latest"
 # ── Jina / affiliate ─────────────────────────────────────────────────────────
 
 JINA_API_KEY       = os.environ.get("JINA_API_KEY") or os.environ.get("JINA_APi_KEY", "")
+SENTRY_DSN         = os.environ.get("SENTRY_DSN", "")
+POSTHOG_KEY        = os.environ.get("POSTHOG_KEY", "")
 JINA_SEARCH_URL    = "https://s.jina.ai/"
 AFFILIATE_ENDPOINT = os.environ.get("AFFILIATE_URL", "")
 

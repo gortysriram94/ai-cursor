@@ -106,6 +106,16 @@ def make_debug_overlay(root: tk.Tk) -> None:
     _, r_status   = _row("status")
 
     tk.Frame(win, bg="#1A2A1A", height=1).pack(fill="x", padx=4, pady=2)
+    tk.Label(win, text="  ◈ health", bg=_OVERLAY_BG, fg=_OVERLAY_DIM,
+             font=("Segoe UI", 7, "bold")).pack(anchor="w", padx=6, pady=(2, 1))
+
+    _, r_obs_rate    = _row("obs/min")
+    _, r_brain_rate  = _row("brain rdy")
+    _, r_proactive   = _row("proactive")
+    _, r_threads     = _row("threads")
+    _, r_anomalies   = _row("anomalies")
+
+    tk.Frame(win, bg="#1A2A1A", height=1).pack(fill="x", padx=4, pady=2)
     tk.Label(win, text="  Alt+D to close", bg=_OVERLAY_BG, fg=_OVERLAY_DIM,
              font=("Segoe UI", 6)).pack(anchor="w", padx=6, pady=(0, 4))
 
@@ -167,6 +177,45 @@ def make_debug_overlay(root: tk.Tk) -> None:
                 text=f"{menu}{form}{ready}",
                 fg=_OVERLAY_FG if (ctx and ctx.ready) else _OVERLAY_WARN
             )
+
+            # ── Health metrics (from observability.py) ────────────────────────
+            m = state.obs_metrics
+            if m:
+                obs_r = m.get("obs_rate_1m", 0)
+                r_obs_rate.configure(
+                    text=f"{obs_r:.1f}/min",
+                    fg=_OVERLAY_FG if obs_r > 1 else _OVERLAY_WARN
+                )
+
+                br = m.get("brain_ready_rate", 0)
+                r_brain_rate.configure(
+                    text=f"{br:.0%}",
+                    fg=_OVERLAY_FG if br >= 0.7 else (_OVERLAY_WARN if br >= 0.4 else _OVERLAY_ERR)
+                )
+
+                gen  = m.get("proactive_gen_1m", 0)
+                errs = m.get("proactive_err_1m", 0)
+                hits = m.get("proactive_hit_1m", 0)
+                r_proactive.configure(
+                    text=f"gen:{gen} err:{errs} hit:{hits}",
+                    fg=_OVERLAY_ERR if errs > 0 else _OVERLAY_FG
+                )
+
+                threads = m.get("threads", {})
+                dead    = [n for n, a in threads.items() if not a]
+                r_threads.configure(
+                    text="all alive" if not dead else f"DEAD: {','.join(dead)}",
+                    fg=_OVERLAY_FG if not dead else _OVERLAY_ERR
+                )
+
+                anomalies = m.get("anomalies", [])
+                r_anomalies.configure(
+                    text=anomalies[0] if anomalies else "none",
+                    fg=_OVERLAY_ERR if anomalies else _OVERLAY_DIM
+                )
+            else:
+                for r in (r_obs_rate, r_brain_rate, r_proactive, r_threads, r_anomalies):
+                    r.configure(text="collecting…", fg=_OVERLAY_DIM)
 
         except Exception:
             pass

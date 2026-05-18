@@ -97,6 +97,8 @@ class ContextBrain:
                 continue
             except Exception as e:
                 log(f"[BRAIN] error: {e}")
+                from telemetry import capture_exception
+                capture_exception(e, "context_brain_loop")
 
     # ── Process one observation ────────────────────────────────────────────────
 
@@ -162,6 +164,7 @@ class ContextBrain:
                 self._ctx.ready   = True
                 state.working_context = self._ctx
                 state.context_ready   = True
+                state.brain_ready_count += 1   # cache-hit path
                 # Entities already populated from previous enrich — safe to trigger
                 maybe_generate(
                     text         = obs.visible_text,
@@ -181,6 +184,7 @@ class ContextBrain:
             self._ctx.ready      = True
             state.working_context = self._ctx
             state.context_ready   = True
+            state.brain_ready_count += 1   # short-text path
 
     # ── Task boundary detection ────────────────────────────────────────────────
 
@@ -249,6 +253,7 @@ class ContextBrain:
         self._ctx.ready       = True
         state.working_context = self._ctx
         state.context_ready   = True
+        state.brain_ready_count += 1
         # Redact PII from log — never log raw emails, phones, card numbers
         from security import redact_for_log
         log(f"[BRAIN] ready ({self._ctx.market}) — "

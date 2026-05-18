@@ -113,3 +113,28 @@ process_log: list = []
 # Each entry: {action, result, content_type, timestamp, entities}
 # Set by proactive generation queue, consumed by menu/result window.
 proactive_cache: dict = {}
+
+# ── Autonomous observability counters ────────────────────────────────────────
+# Incremented on hot paths; read by observability.py to compute rates.
+# All are simple ints — GIL makes single += safe for these approximate counters.
+obs_count_total:      int   = 0    # total Observations emitted by perception
+last_obs_ts:          float = 0.0  # monotonic time of last emitted observation
+brain_ready_count:    int   = 0    # times context_ready fired (enrichment done)
+proactive_gen_count:  int   = 0    # successful proactive generations
+proactive_err_count:  int   = 0    # failed proactive generations
+proactive_hit_count:  int   = 0    # proactive cache hits used at Alt+A time
+
+# Computed by observability.py every 10 s — read by debug overlay + dashboard.
+obs_metrics: dict = {}
+
+# ── Approval card pending ────────────────────────────────────────────────────
+# Set by brain/proactive.py when a result is ready for review.
+# Consumed by main.py tick loop → shows the approval card.
+# Schema: {action, action_label, result, content_type, content_hash, app_name}
+approval_pending: "dict | None" = None
+
+# ── Scheduled task pending ────────────────────────────────────────────────────
+# Set by scheduler.py when a time-based task fires.
+# Consumed by brain/proactive.py — overrides confidence threshold + action.
+# Schema: {id, label, action}  |  None when no task is pending.
+scheduled_task_pending: "dict | None" = None

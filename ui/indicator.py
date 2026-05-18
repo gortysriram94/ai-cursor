@@ -52,7 +52,21 @@ def make_indicator(root: tk.Tk) -> tk.Toplevel:
             win.geometry(f"+{x + _OFF_X}+{y + _OFF_Y}")
 
             if state.context_ready:
-                lbl.configure(text="●", fg="#DA7756")   # accent — ready
+                # Check if a proactive result is already waiting for this content
+                _proactive_ready = False
+                ctx = state.working_context
+                if ctx and ctx.raw_text and not state.only_bundled_model:
+                    import hashlib as _hl
+                    _h = _hl.md5(ctx.raw_text[:400].encode()).hexdigest()[:12]
+                    _e = state.proactive_cache.get(_h)
+                    _proactive_ready = bool(
+                        _e and _e.get("status") == "ready" and _e.get("result")
+                    )
+
+                if _proactive_ready:
+                    lbl.configure(text="⚡", fg="#DA7756")   # result waiting
+                else:
+                    lbl.configure(text="●", fg="#DA7756")   # context ready
             elif state.working_context is not None:
                 # Brain is building — pulse
                 _s["frame"] = (_s["frame"] + 1) % len(_PULSE)

@@ -284,9 +284,13 @@ def download_model_bg(model: str):
         from storage import add_downloaded_model
         add_downloaded_model(model)
         _warmup_model(model)
+        from telemetry import track
+        track("model_downloaded", {"model": model})
     except Exception as e:
         state.model_dl_status[model] = {"error": True, "text": str(e)}
         log(f"[PULL FAILED] {model}: {e}")
+        from telemetry import capture_exception
+        capture_exception(e, f"download_model:{model}")
 
 
 def cancel_download(model: str) -> None:

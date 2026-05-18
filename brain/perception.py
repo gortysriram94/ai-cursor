@@ -16,6 +16,7 @@ import threading
 from dataclasses import dataclass
 
 from log import log
+import state
 
 
 # ── Observation ────────────────────────────────────────────────────────────────
@@ -46,6 +47,8 @@ class PerceptionThread:
     MIN_TEXT_DELTA    = 60    # chars — minimum change to count as content_change
     QUEUE_MAX         = 20    # drop old observations if brain falls behind
 
+    VISION_FALLBACK_COOLDOWN = 30.0   # seconds between vision fallback attempts
+
     def __init__(self, obs_queue: queue.Queue):
         self._q               = obs_queue
         self._running         = False
@@ -56,6 +59,8 @@ class PerceptionThread:
         self._last_selection  = ""   # tracks highlighted text separately
         self._last_content_ts = 0.0
         self._last_periodic_ts = 0.0
+        self._last_vision_ts  = 0.0  # last time vision fallback was attempted
+        self._vision_running  = False
 
     def start(self):
         self._running = True
@@ -101,13 +106,19 @@ class PerceptionThread:
             self._last_content_ts  = now
             self._last_periodic_ts = now
             self._emit(window, text, "window_change")
+
+            # OCR fallback — if UIA returned nothing, try vision model
+            if not text.strip() and not self._vision_running:
+                if now - self._last_vision_ts >= self.VISION_FALLBACK_COOLDOWN:
+                    self._start_vision_fallback(window)
             return
 
         # Check selection — emit immediately when user highlights something new
+        # Threshold lowered to 2 so short high-value strings (tickers, codes) aren't dropped
         try:
             if hasattr(plat, "get_selected_text"):
                 sel = plat.get_selected_text(window)
-                if sel and sel != self._last_selection and len(sel) > 5:
+                if sel and sel != self._last_selection and len(sel) > 2:
                     self._last_selection = sel
                     self._emit(window, sel, "selection_change")
                     return
@@ -155,12 +166,76 @@ class PerceptionThread:
         except Exception:
             return self._last_text
 
+    # Maximum characters accepted from a single window read
+    MAX_OBS_TEXT = 8000
+
+    def _start_vision_fallback(self, window) -> None:
+        """
+        Screenshot → vision model when UIA returns nothing.
+        Runs in a background thread; injects result as a content_change observation.
+        Only fires when a vision model is available and the cooldown has elapsed.
+        """
+        try:
+            from ai import is_vision_model_available
+            if not is_vision_model_available():
+                return
+        except Exception:
+            return
+
+        self._vision_running = True
+        self._last_vision_ts = time.time()
+
+        def _run():
+            try:
+                import base64, io
+                import pyautogui
+                from ai import call_ai_vision_streaming
+
+                # Screenshot the whole screen — we don't have window rect
+                img     = pyautogui.screenshot()
+                buf     = io.BytesIO()
+                img.save(buf, format="PNG")
+                img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+                parts: list[str] = []
+
+                def _tok(t):  parts.append(t)
+                def _done():
+                    text = "".join(parts).strip()
+                    if text and len(text) > 20:
+                        self._last_text = text
+                        self._emit(window, text, "content_change")
+                        log(f"[PERCEPTION] vision fallback: {len(text)} chars")
+                def _err(): pass
+
+                call_ai_vision_streaming(
+                    img_b64, "inspect", _tok, _done, _err,
+                    custom_instruction=(
+                        "Extract all readable text from this screenshot. "
+                        "Return only the text content, no descriptions or labels."
+                    ),
+                )
+            except Exception as e:
+                log(f"[PERCEPTION] vision fallback failed: {e}")
+            finally:
+                self._vision_running = False
+
+        threading.Thread(target=_run, daemon=True, name="vision-fallback").start()
+
     def _emit(self, window, text: str, event_type: str):
+        # ── Input validation ──────────────────────────────────────────────────
+        # Sanitise before queuing — malformed input here would corrupt the brain.
+        app_name     = (window.app_name     or "").strip()[:128] or "Unknown"
+        window_title = (window.window_title or "").strip()[:256] or ""
+
+        # Strip null bytes and non-printable control chars; clamp length
+        safe_text = (text or "").replace("\x00", "").strip()[:self.MAX_OBS_TEXT]
+
         obs = Observation(
             timestamp    = time.time(),
-            app_name     = window.app_name,
-            window_title = window.window_title,
-            visible_text = text,
+            app_name     = app_name,
+            window_title = window_title,
+            visible_text = safe_text,
             event_type   = event_type,
             pid          = window.pid,
         )
@@ -172,5 +247,7 @@ class PerceptionThread:
                 pass
         try:
             self._q.put_nowait(obs)
+            state.obs_count_total += 1
+            state.last_obs_ts = time.monotonic()
         except queue.Full:
             pass

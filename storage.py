@@ -492,6 +492,69 @@ def load_action_rankings() -> dict:
     return {}
 
 
+# ── Scheduled tasks (Level 2 proactive) ──────────────────────────────────────
+
+_DEFAULT_TASKS = [
+    {
+        "id":          "morning_briefing",
+        "name":        "Morning Briefing",
+        "description": "Summarise the first document or email you open each morning.",
+        "time":        "08:00",
+        "days":        ["mon", "tue", "wed", "thu", "fri"],
+        "action":      "summarize",
+        "enabled":     False,
+        "last_run":    "",
+    },
+    {
+        "id":          "end_of_day",
+        "name":        "End of Day",
+        "description": "Review and summarise what you've been working on.",
+        "time":        "17:00",
+        "days":        ["mon", "tue", "wed", "thu", "fri"],
+        "action":      "summarize",
+        "enabled":     False,
+        "last_run":    "",
+    },
+    {
+        "id":          "follow_up_check",
+        "name":        "Follow-up Check",
+        "description": "Draft replies for pending emails or messages.",
+        "time":        "10:00",
+        "days":        ["mon", "tue", "wed", "thu", "fri"],
+        "action":      "reply",
+        "enabled":     False,
+        "last_run":    "",
+    },
+]
+
+
+def load_scheduled_tasks() -> list:
+    """Return list of scheduled task dicts. Inserts defaults on first call."""
+    try:
+        data = {}
+        if PREFS_FILE.exists():
+            data = json.loads(PREFS_FILE.read_text(encoding="utf-8"))
+        if "scheduled_tasks" not in data:
+            # First time — write defaults so the UI can show them
+            data["scheduled_tasks"] = _DEFAULT_TASKS
+            PREFS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return data["scheduled_tasks"]
+    except Exception as e:
+        log(f"[SCHEDULER] load failed: {e}")
+        return list(_DEFAULT_TASKS)
+
+
+def save_scheduled_tasks(tasks: list) -> None:
+    try:
+        data = {}
+        if PREFS_FILE.exists():
+            data = json.loads(PREFS_FILE.read_text(encoding="utf-8"))
+        data["scheduled_tasks"] = tasks
+        PREFS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as e:
+        log(f"[SCHEDULER] save failed: {e}")
+
+
 def record_action_used(context_type: str, action_key: str) -> None:
     """Increment the usage count for (context_type, action_key)."""
     with _rankings_lock:

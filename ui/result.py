@@ -931,6 +931,8 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
                 ).start()
             except Exception:
                 pass
+            from telemetry import track
+            track("result_copied", {"action": action})
 
         def do_insert():
             state._bump("inserts")
@@ -942,6 +944,8 @@ def show_result_window(root: tk.Tk, text: str, action: str, tone: str,
                 ).start()
             except Exception:
                 pass
+            from telemetry import track
+            track("result_inserted", {"action": action})
             content = get_result()
 
             # Capture the insert target NOW (at click time, not at hotkey-press time).
