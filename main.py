@@ -412,6 +412,7 @@ def main():
     root.geometry("1x1+0+0")
 
     # ── System tray icon — appears immediately so users know the app is running ─
+    log("[MAIN] tray started — beginning full initialization")
     # ── Start IPC listener (desktop shortcut → open dashboard) ───────────────
     _start_ipc_listener(root)
 

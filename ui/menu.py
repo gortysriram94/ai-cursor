@@ -208,15 +208,15 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
     x_btn.bind("<Leave>",    lambda e: x_btn.configure(fg=_T["fg_muted"]))
 
     def _open_settings(e=None):
-        # Close the panel (and its catcher) before opening the dashboard,
-        # otherwise the catcher intercepts all clicks on the dashboard.
-        close()
+        # Close panel first so the catcher doesn't intercept dashboard clicks.
+        # Use root.after (not win.after) — win is destroyed by close().
         fn = on_settings or (lambda: (
             __import__("ui.dashboard", fromlist=["show_dashboard"])
             .show_dashboard(root)
         ))
+        close()
         try:
-            win.after(60, fn)
+            root.after(80, fn)
         except Exception:
             try: fn()
             except Exception: pass
