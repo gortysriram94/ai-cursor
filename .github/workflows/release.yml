@@ -123,7 +123,7 @@ jobs:
             dist/AIcursor-windows-setup.exe
             dist/AIcursor-windows-setup.zip
 
-  # ── macOS — arm64 only (Intel users run via Rosetta 2) ─────────────────────
+  # ── macOS Apple Silicon (arm64) ────────────────────────────────────────────
   build-macos:
     runs-on: macos-14
     steps:
@@ -208,9 +208,99 @@ jobs:
             dist/AIcursor-macos.dmg
             dist/AIcursor-macos.zip
 
+  # ── macOS Intel (x86_64) ───────────────────────────────────────────────────
+  build-macos-intel:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python 3.11 + tkinter
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "x64"
+
+      - name: Install tkinter
+        run: |
+          brew install python-tk@3.11
+          TK_PATH=$(brew --prefix python-tk@3.11)/libexec
+          SITE=$(python3.11 -c "import site; print(site.getsitepackages()[0])")
+          ln -sf "$TK_PATH"/_tkinter.cpython-311-darwin.so "$SITE"/ 2>/dev/null || true
+          ln -sf "$TK_PATH"/tkinter "$SITE"/ 2>/dev/null || true
+
+      - name: Install dependencies
+        run: |
+          python3.11 -m pip install --upgrade pip
+          python3.11 -m pip install \
+            "pillow>=10.0" \
+            "cryptography" \
+            "pynput" \
+            pyinstaller requests pyautogui pyperclip pdfplumber
+          python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa \
+            pyobjc-framework-Quartz pyobjc-framework-ApplicationServices \
+            2>/dev/null || echo "pyobjc skipped"
+
+      - name: Verify tkinter
+        run: python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
+
+      - name: Download Ollama binary
+        run: |
+          mkdir -p ollama
+          curl -L "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin-amd64" \
+            -o ollama/ollama
+          chmod +x ollama/ollama
+          echo "ollama arch: $(lipo -info ollama/ollama 2>/dev/null || file ollama/ollama)"
+
+      - name: Stamp version
+        run: |
+          ver="${{ env.VERSION }}"
+          echo "APP_VERSION = \"${ver#v}\"" > _version.py
+
+      - name: Build x86_64 with PyInstaller
+        env:
+          TARGET_ARCH: x86_64
+        run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
+
+      - name: Verify binary architecture
+        run: |
+          MAIN="dist/AIcursor.app/Contents/MacOS/AIcursor"
+          ARCHS=$(lipo -archs "$MAIN" 2>/dev/null || echo "unknown")
+          echo "Main binary: $ARCHS"
+          if ! echo "$ARCHS" | grep -q "x86_64"; then
+            echo "ERROR: expected x86_64 but got: $ARCHS"
+            exit 1
+          fi
+          echo "✓ x86_64 binary verified"
+
+      - name: Package as DMG
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "AI Cursor" \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "AIcursor.app" 175 190 \
+            --hide-extension "AIcursor.app" \
+            --app-drop-link 425 190 \
+            "dist/AIcursor-macos-intel.dmg" \
+            "dist/AIcursor.app" || echo "create-dmg done (non-zero is normal)"
+
+      - name: Zip as fallback if DMG missing
+        run: |
+          if [ ! -f "dist/AIcursor-macos-intel.dmg" ]; then
+            cd dist && zip -r "AIcursor-macos-intel.zip" AIcursor.app
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-intel-build
+          path: |
+            dist/AIcursor-macos-intel.dmg
+            dist/AIcursor-macos-intel.zip
+
   # ── Publish ────────────────────────────────────────────────────────────────
   publish:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-macos-intel]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -223,6 +313,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: macos-build
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-intel-build
           path: dist
 
       - name: List release files
