@@ -360,17 +360,46 @@ def main():
     _start_session()
     atexit.register(_end_session)
 
-    # ── Single-instance guard ─────────────────────────────────────────────────
-    if sys.platform == "win32":
-        _mutex = ctypes.windll.kernel32.CreateMutexW(None, True, "Global\\AICursorSingleInstance")
-        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-            ctypes.windll.user32.MessageBoxW(
-                0,
-                "AI Cursor is already running.\n\nCheck the system tray.",
-                "AI Cursor",
-                0x40,  # MB_ICONINFORMATION
-            )
-            sys.exit(0)
+    # ── Single-instance guard with IPC ───────────────────────────────────────
+    # If another instance is running, signal it to open the dashboard and exit.
+    # Otherwise, start a listener so future launches can signal us.
+    _IPC_PORT = 19876
+
+    def _start_ipc_listener(root_ref):
+        import socket as _sock
+        def _listen():
+            try:
+                srv = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                srv.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
+                srv.bind(("127.0.0.1", _IPC_PORT))
+                srv.listen(5)
+                srv.settimeout(1.0)
+                while True:
+                    try:
+                        conn, _ = srv.accept()
+                        cmd = conn.recv(64).decode("utf-8", errors="ignore").strip()
+                        conn.close()
+                        if cmd == "dashboard":
+                            root_ref.after(0, lambda: _show_dashboard(root_ref))
+                    except _sock.timeout:
+                        continue
+                    except Exception:
+                        break
+            except Exception:
+                pass
+        threading.Thread(target=_listen, daemon=True,
+                         name="ipc-listener").start()
+
+    try:
+        import socket as _sock_check
+        _probe = _sock_check.socket(_sock_check.AF_INET, _sock_check.SOCK_STREAM)
+        _probe.settimeout(0.3)
+        _probe.connect(("127.0.0.1", _IPC_PORT))
+        _probe.sendall(b"dashboard")
+        _probe.close()
+        sys.exit(0)   # another instance is running — it will open the dashboard
+    except OSError:
+        pass   # no other instance — continue starting up
 
     _set_dpi_awareness()   # must be before tk.Tk()
 
@@ -383,6 +412,9 @@ def main():
     root.geometry("1x1+0+0")
 
     # ── System tray icon — appears immediately so users know the app is running ─
+    # ── Start IPC listener (desktop shortcut → open dashboard) ───────────────
+    _start_ipc_listener(root)
+
     import tray as _tray
     _tray.preload_icons()   # render flame icons on main thread before tray thread starts
     _tray.start_tray(

@@ -208,14 +208,18 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
     x_btn.bind("<Leave>",    lambda e: x_btn.configure(fg=_T["fg_muted"]))
 
     def _open_settings(e=None):
-        if on_settings:
-            on_settings()
-        else:
-            try:
-                from ui.dashboard import show_dashboard
-                show_dashboard(root)
-            except Exception:
-                pass
+        # Close the panel (and its catcher) before opening the dashboard,
+        # otherwise the catcher intercepts all clicks on the dashboard.
+        close()
+        fn = on_settings or (lambda: (
+            __import__("ui.dashboard", fromlist=["show_dashboard"])
+            .show_dashboard(root)
+        ))
+        try:
+            win.after(60, fn)
+        except Exception:
+            try: fn()
+            except Exception: pass
 
     gear_btn = tk.Label(hdr, text="⚙", bg=_T["bg"], fg=_T["fg_muted"],
                         font=("Segoe UI", 10), cursor="hand2", padx=4)
