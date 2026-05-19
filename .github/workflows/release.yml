@@ -222,6 +222,7 @@ jobs:
 
       - name: Install tkinter
         run: |
+          brew link --overwrite python@3.11 || true
           brew install python-tk@3.11
           TK_PATH=$(brew --prefix python-tk@3.11)/libexec
           SITE=$(python3.11 -c "import site; print(site.getsitepackages()[0])")
