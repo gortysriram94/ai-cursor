@@ -827,8 +827,8 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
     sugg = [(lbl, k) for lbl, k in _raw_actions if k != "annotate"][:3]
 
     if sugg:
-        pill_row = tk.Frame(c_col, bg=_T["bg"], padx=8, pady=(0, 6))
-        pill_row.pack(fill="x")
+        pill_row = tk.Frame(c_col, bg=_T["bg"], padx=8)
+        pill_row.pack(fill="x", pady=(0, 6))
         for lbl, k in sugg:
             p = tk.Label(pill_row, text=lbl,
                          bg=_T["pill"], fg=_T["pill_fg"],
