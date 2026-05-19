@@ -123,40 +123,86 @@ jobs:
             dist/AIcursor-windows-setup.exe
             dist/AIcursor-windows-setup.zip
 
-  # ── macOS universal2 (single job — PyInstaller builds fat binary directly) ───
-  build-macos-universal:
+  # ── macOS — two native builds (arm64 + x86_64) on macos-14 ─────────────────
+  build-macos:
     runs-on: macos-14
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Python 3.11 + tkinter
+      - name: Install Python 3.11 + tkinter (arm64)
+        if: matrix.arch == 'arm64'
         run: |
           brew install python@3.11 python-tk@3.11
           echo "$(brew --prefix)/opt/python@3.11/bin" >> $GITHUB_PATH
 
-      - name: Install dependencies (prefer universal2 wheels)
+      - name: Install Python 3.11 universal2 (x86_64 build)
+        if: matrix.arch == 'x86_64'
         run: |
-          python3.11 -m pip install --upgrade pip
-          # Download universal2 wheels for binary packages so PyInstaller can
-          # produce a fat binary that runs on both Apple Silicon and Intel.
-          python3.11 -m pip install \
-            --extra-index-url https://pypi.org/simple/ \
-            "pillow>=10.0" \
-            "cryptography" \
-            "pynput" \
-            pyinstaller requests pyautogui pyperclip pdfplumber
-          python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa \
-            pyobjc-framework-Quartz pyobjc-framework-ApplicationServices \
-            2>/dev/null || echo "pyobjc skipped"
+          # Python.org installer ships as universal2 — we run it under Rosetta
+          curl -L "https://www.python.org/ftp/python/3.11.11/python-3.11.11-macos11.pkg" \
+            -o /tmp/python.pkg
+          sudo installer -pkg /tmp/python.pkg -target /
+          echo "/Library/Frameworks/Python.framework/Versions/3.11/bin" >> $GITHUB_PATH
+          # Verify we get the right arch when running under Rosetta
+          echo "Native: $(python3.11 -c 'import platform; print(platform.machine())')"
+          echo "Rosetta: $(arch -x86_64 python3.11 -c 'import platform; print(platform.machine())')"
+
+      - name: Install tkinter (x86_64)
+        if: matrix.arch == 'x86_64'
+        run: |
+          brew install python-tk@3.11
+          # Link Homebrew's tkinter into the Python.org framework
+          TK_PATH=$(brew --prefix python-tk@3.11)/libexec
+          SITE="/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages"
+          ln -sf "$TK_PATH"/_tkinter.cpython-311-darwin.so "$SITE"/ 2>/dev/null || true
+          ln -sf "$TK_PATH"/tkinter "$SITE"/ 2>/dev/null || true
+
+      - name: Install dependencies (native arch)
+        run: |
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            # Run pip under Rosetta so it fetches x86_64 wheels
+            arch -x86_64 python3.11 -m pip install --upgrade pip
+            arch -x86_64 python3.11 -m pip install \
+              "pillow>=10.0" \
+              "cryptography" \
+              "pynput" \
+              pyinstaller requests pyautogui pyperclip pdfplumber
+            arch -x86_64 python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa \
+              pyobjc-framework-Quartz pyobjc-framework-ApplicationServices \
+              2>/dev/null || echo "pyobjc skipped"
+          else
+            python3.11 -m pip install --upgrade pip
+            python3.11 -m pip install \
+              "pillow>=10.0" \
+              "cryptography" \
+              "pynput" \
+              pyinstaller requests pyautogui pyperclip pdfplumber
+            python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa \
+              pyobjc-framework-Quartz pyobjc-framework-ApplicationServices \
+              2>/dev/null || echo "pyobjc skipped"
+          fi
 
       - name: Verify tkinter
-        run: python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
+        run: |
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            arch -x86_64 python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
+          else
+            python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
+          fi
 
-      - name: Download Ollama universal binary
+      - name: Download Ollama binary
         run: |
           mkdir -p ollama
-          curl -L "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin" \
-            -o ollama/ollama
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            curl -L "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin-arm64" \
+              -o ollama/ollama
+          else
+            curl -L "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin-amd64" \
+              -o ollama/ollama
+          fi
           chmod +x ollama/ollama
           echo "ollama arch: $(lipo -info ollama/ollama 2>/dev/null || file ollama/ollama)"
 
@@ -165,21 +211,30 @@ jobs:
           ver="${{ env.VERSION }}"
           echo "APP_VERSION = \"${ver#v}\"" > _version.py
 
-      - name: Build universal2 with PyInstaller
+      - name: Build native ${{ matrix.arch }} with PyInstaller
         env:
-          TARGET_ARCH: universal2
-        run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            arch -x86_64 python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
+          else
+            python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
+          fi
 
-      - name: Verify universal binary
+      - name: Verify binary architecture
         run: |
           MAIN="dist/AIcursor.app/Contents/MacOS/AIcursor"
-          ARCHS=$(lipo -archs "$MAIN" 2>/dev/null || echo "unknown")
-          echo "Main binary architectures: $ARCHS"
-          if ! echo "$ARCHS" | grep -q "arm64" || ! echo "$ARCHS" | grep -q "x86_64"; then
-            echo "ERROR: binary is not universal2 — got: $ARCHS"
+          ARCHS=$(lipo -archs "$MAIN" 2>/dev/null || file -b "$MAIN" | grep -oE 'arm64|x86_64')
+          echo "Main binary: $ARCHS"
+          if [ "${{ matrix.arch }}" = "arm64" ] && ! echo "$ARCHS" | grep -q "arm64"; then
+            echo "ERROR: expected arm64 but got: $ARCHS"
             exit 1
           fi
-          echo "✓ Universal2 binary verified (arm64 + x86_64)"
+          if [ "${{ matrix.arch }}" = "x86_64" ] && ! echo "$ARCHS" | grep -q "x86_64"; then
+            echo "ERROR: expected x86_64 but got: $ARCHS"
+            exit 1
+          fi
+          echo "✓ ${{ matrix.arch }} binary verified"
 
       - name: Package as DMG
         run: |
@@ -191,26 +246,25 @@ jobs:
             --icon "AIcursor.app" 175 190 \
             --hide-extension "AIcursor.app" \
             --app-drop-link 425 190 \
-            "dist/AIcursor-macos.dmg" \
+            "dist/AIcursor-macos-${{ matrix.arch }}.dmg" \
             "dist/AIcursor.app" || echo "create-dmg done (non-zero is normal)"
 
       - name: Zip as fallback if DMG missing
         run: |
-          if [ ! -f "dist/AIcursor-macos.dmg" ]; then
-            cd dist && zip -r "AIcursor-macos.zip" AIcursor.app
+          if [ ! -f "dist/AIcursor-macos-${{ matrix.arch }}.dmg" ]; then
+            cd dist && zip -r "AIcursor-macos-${{ matrix.arch }}.zip" AIcursor.app
           fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-build
+          name: macos-build-${{ matrix.arch }}
           path: |
-            dist/AIcursor-macos.dmg
-            dist/AIcursor-macos.zip
+            dist/AIcursor-macos-${{ matrix.arch }}.dmg
+            dist/AIcursor-macos-${{ matrix.arch }}.zip
 
   # ── Publish ────────────────────────────────────────────────────────────────
   publish:
-    needs: [build-windows, build-macos-universal]
-    # build-macos-universal is now a single job (no longer depends on arm64/intel sub-jobs)
+    needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -222,7 +276,12 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: macos-build
+          name: macos-build-arm64
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-build-x86_64
           path: dist
 
       - name: List release files
@@ -241,8 +300,14 @@ jobs:
             3. On first launch the app downloads the AI model (~1.3 GB) automatically
             4. Press **Alt+A** on any text to start
 
-            ### macOS
-            1. Download `AIcursor-macos.dmg`
+            ### macOS (Apple Silicon / M1-M4)
+            1. Download `AIcursor-macos-arm64.dmg`
+            2. Open the DMG, drag **AI Cursor** to Applications
+            3. On first launch the app downloads the AI model (~1.3 GB) automatically
+            4. Press **Option+A** on any text to start
+
+            ### macOS (Intel)
+            1. Download `AIcursor-macos-x86_64.dmg`
             2. Open the DMG, drag **AI Cursor** to Applications
             3. On first launch the app downloads the AI model (~1.3 GB) automatically
             4. Press **Option+A** on any text to start

@@ -72,6 +72,9 @@ a = Analysis(
         "objc",
         # Web stack
         "next", "react", "webpack",
+        # Pillow plugins with no universal2 wheel — app does not use these formats
+        "PIL._avif",
+        "PIL._webp",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -79,6 +82,12 @@ a = Analysis(
     noarchive=False,
     target_arch=_target_arch,
 )
+
+# Strip binaries that cannot match the target architecture.
+# Pillow's _avif, _webp, and _imagingcms are single-arch and break universal2 builds.
+# These formats are not used by the app.
+_incompatible = {"_avif", "_webp", "_imagingcms"}
+a.binaries = [b for b in a.binaries if not any(x in b[0] for x in _incompatible)]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
