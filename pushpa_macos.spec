@@ -3,7 +3,7 @@ import os
 
 block_cipher = None
 
-# Set TARGET_ARCH env var to 'x86_64' or 'arm64' to cross-compile.
+# Set TARGET_ARCH env var to 'universal2', 'x86_64', or 'arm64'.
 # Leave unset to build for the native machine architecture.
 _target_arch = os.environ.get("TARGET_ARCH") or None
 

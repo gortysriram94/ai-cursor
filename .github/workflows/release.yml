@@ -123,142 +123,63 @@ jobs:
             dist/AIcursor-windows-setup.exe
             dist/AIcursor-windows-setup.zip
 
-  # ── macOS arm64 (Apple Silicon) ────────────────────────────────────────────
-  build-macos-arm64:
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Python 3.11 + tkinter
-        run: |
-          brew install python@3.11 python-tk@3.11
-          echo "$(brew --prefix)/opt/python@3.11/bin" >> $GITHUB_PATH
-
-      - name: Install dependencies
-        run: |
-          python3.11 -m pip install --upgrade pip
-          python3.11 -m pip install pyinstaller pillow requests pyautogui pyperclip pynput pdfplumber
-          python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz \
-            pyobjc-framework-ApplicationServices 2>/dev/null || echo "pyobjc skipped"
-
-      - name: Verify tkinter
-        run: python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
-
-      - name: Download Ollama universal binary
-        run: |
-          mkdir -p ollama
-          curl -L "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin" \
-            -o ollama/ollama
-          chmod +x ollama/ollama
-          echo "ollama arch: $(lipo -info ollama/ollama 2>/dev/null || file ollama/ollama)"
-
-      - name: Stamp version
-        run: |
-          ver="${{ env.VERSION }}"
-          echo "APP_VERSION = \"${ver#v}\"" > _version.py
-
-      - name: Build with PyInstaller (arm64)
-        run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-arm64-app
-          path: dist/AIcursor.app
-
-  # ── macOS x86_64 (cross-compiled on Apple Silicon) ──────────────────────────
-  build-macos-intel:
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Python 3.11 + tkinter
-        run: |
-          brew install python@3.11 python-tk@3.11
-          echo "$(brew --prefix)/opt/python@3.11/bin" >> $GITHUB_PATH
-
-      - name: Install dependencies
-        run: |
-          python3.11 -m pip install --upgrade pip
-          python3.11 -m pip install pyinstaller pillow requests pyautogui pyperclip pynput pdfplumber
-          python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz \
-            pyobjc-framework-ApplicationServices 2>/dev/null || echo "pyobjc skipped"
-
-      - name: Verify tkinter
-        run: python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
-
-      - name: Download Ollama universal binary
-        run: |
-          mkdir -p ollama
-          curl -L "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin" \
-            -o ollama/ollama
-          chmod +x ollama/ollama
-          echo "ollama arch: $(lipo -info ollama/ollama 2>/dev/null || file ollama/ollama)"
-
-      - name: Stamp version
-        run: |
-          ver="${{ env.VERSION }}"
-          echo "APP_VERSION = \"${ver#v}\"" > _version.py
-
-      - name: Build with PyInstaller (x86_64)
-        env:
-          TARGET_ARCH: x86_64
-        run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-intel-app
-          path: dist/AIcursor.app
-
-  # ── macOS universal — merge arm64 + x86_64 with lipo ───────────────────────
+  # ── macOS universal2 (single job — PyInstaller builds fat binary directly) ───
   build-macos-universal:
-    needs: [build-macos-arm64, build-macos-intel]
     runs-on: macos-14
     steps:
-      - name: Download arm64 app
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-arm64-app
-          path: arm64/AIcursor.app
+      - uses: actions/checkout@v4
 
-      - name: Download intel app
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-intel-app
-          path: intel/AIcursor.app
-
-      - name: Merge into universal binary with lipo
+      - name: Install Python 3.11 + tkinter
         run: |
-          cp -R arm64/AIcursor.app dist/AIcursor.app
+          brew install python@3.11 python-tk@3.11
+          echo "$(brew --prefix)/opt/python@3.11/bin" >> $GITHUB_PATH
 
-          # Walk every Mach-O file; thin each build to its target arch first
-          # to avoid "same architecture" errors when brew Python is already universal2.
-          find arm64/AIcursor.app -type f | while read arm_file; do
-            rel="${arm_file#arm64/AIcursor.app/}"
-            intel_file="intel/AIcursor.app/$rel"
-            out_file="dist/AIcursor.app/$rel"
+      - name: Install dependencies (prefer universal2 wheels)
+        run: |
+          python3.11 -m pip install --upgrade pip
+          # Download universal2 wheels for binary packages so PyInstaller can
+          # produce a fat binary that runs on both Apple Silicon and Intel.
+          python3.11 -m pip install \
+            --extra-index-url https://pypi.org/simple/ \
+            "pillow>=10.0" \
+            "cryptography" \
+            "pynput" \
+            pyinstaller requests pyautogui pyperclip pdfplumber
+          python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa \
+            pyobjc-framework-Quartz pyobjc-framework-ApplicationServices \
+            2>/dev/null || echo "pyobjc skipped"
 
-            if [ -f "$intel_file" ] && file "$arm_file" | grep -qE "Mach-O|ar archive"; then
-              arm_thin="${arm_file}.arm64"
-              intel_thin="${intel_file}.x86_64"
+      - name: Verify tkinter
+        run: python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
 
-              # Extract single-arch slices (handles case where each build is already universal2)
-              lipo "$arm_file"   -thin arm64   -output "$arm_thin"   2>/dev/null || cp "$arm_file"   "$arm_thin"
-              lipo "$intel_file" -thin x86_64  -output "$intel_thin" 2>/dev/null || cp "$intel_file" "$intel_thin"
+      - name: Download Ollama universal binary
+        run: |
+          mkdir -p ollama
+          curl -L "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin" \
+            -o ollama/ollama
+          chmod +x ollama/ollama
+          echo "ollama arch: $(lipo -info ollama/ollama 2>/dev/null || file ollama/ollama)"
 
-              lipo -create "$arm_thin" "$intel_thin" -output "$out_file" \
-                || { echo "lipo failed for $rel — copying arm64 slice"; cp "$arm_file" "$out_file"; }
-            fi
-          done
+      - name: Stamp version
+        run: |
+          ver="${{ env.VERSION }}"
+          echo "APP_VERSION = \"${ver#v}\"" > _version.py
 
-          # Hard verification — fail the build if the result is not truly universal
+      - name: Build universal2 with PyInstaller
+        env:
+          TARGET_ARCH: universal2
+        run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
+
+      - name: Verify universal binary
+        run: |
           MAIN="dist/AIcursor.app/Contents/MacOS/AIcursor"
           ARCHS=$(lipo -archs "$MAIN" 2>/dev/null || echo "unknown")
           echo "Main binary architectures: $ARCHS"
           if ! echo "$ARCHS" | grep -q "arm64" || ! echo "$ARCHS" | grep -q "x86_64"; then
-            echo "ERROR: main binary is not universal — got: $ARCHS"
+            echo "ERROR: binary is not universal2 — got: $ARCHS"
             exit 1
           fi
-          echo "✓ Universal binary verified (arm64 + x86_64)"
+          echo "✓ Universal2 binary verified (arm64 + x86_64)"
 
       - name: Package as DMG
         run: |
@@ -289,6 +210,7 @@ jobs:
   # ── Publish ────────────────────────────────────────────────────────────────
   publish:
     needs: [build-windows, build-macos-universal]
+    # build-macos-universal is now a single job (no longer depends on arm64/intel sub-jobs)
     runs-on: ubuntu-latest
     permissions:
       contents: write
