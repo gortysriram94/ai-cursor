@@ -1,6 +1,11 @@
 # pushpa_macos.spec — PyInstaller build config for AI Cursor on macOS
+import os
 
 block_cipher = None
+
+# Set TARGET_ARCH env var to 'x86_64' or 'arm64' to cross-compile.
+# Leave unset to build for the native machine architecture.
+_target_arch = os.environ.get("TARGET_ARCH") or None
 
 a = Analysis(
     ["main.py"],
@@ -72,6 +77,7 @@ a = Analysis(
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
+    target_arch=_target_arch,
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
@@ -87,6 +93,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    target_arch=_target_arch,
 )
 
 app = BUNDLE(
