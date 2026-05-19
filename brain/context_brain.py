@@ -165,6 +165,13 @@ class ContextBrain:
                 state.working_context = self._ctx
                 state.context_ready   = True
                 state.brain_ready_count += 1   # cache-hit path
+                try:
+                    from journal import add_entry as _jlog
+                    _jlog(obs.app_name, self._ctx.content_type,
+                          self._ctx.situation, self._ctx.entities,
+                          obs.visible_text)
+                except Exception:
+                    pass
                 # Entities already populated from previous enrich — safe to trigger
                 maybe_generate(
                     text         = obs.visible_text,
@@ -185,6 +192,13 @@ class ContextBrain:
             state.working_context = self._ctx
             state.context_ready   = True
             state.brain_ready_count += 1   # short-text path
+            try:
+                from journal import add_entry as _jlog
+                _jlog(obs.app_name, self._ctx.content_type,
+                      self._ctx.situation, self._ctx.entities,
+                      obs.visible_text)
+            except Exception:
+                pass
 
     # ── Task boundary detection ────────────────────────────────────────────────
 
@@ -254,6 +268,13 @@ class ContextBrain:
         state.working_context = self._ctx
         state.context_ready   = True
         state.brain_ready_count += 1
+        try:
+            from journal import add_entry as _jlog
+            _jlog(obs.app_name, self._ctx.content_type,
+                  self._ctx.situation, self._ctx.entities,
+                  obs.visible_text)
+        except Exception:
+            pass
         # Redact PII from log — never log raw emails, phones, card numbers
         from security import redact_for_log
         log(f"[BRAIN] ready ({self._ctx.market}) — "

@@ -141,6 +141,11 @@ approval_pending: "dict | None" = None
 # Schema: {id, label, action}  |  None when no task is pending.
 scheduled_task_pending: "dict | None" = None
 
+# ── Conversation history ─────────────────────────────────────────────────────
+# Persists across panel opens so the AI has context of recent exchanges.
+# Each entry: {"role": "user"|"assistant", "content": str, "ts": float}
+conversation_history: list = []
+
 # ── Active multi-step plan ────────────────────────────────────────────────────
 # Set by brain/proactive.py when a plan is generated for the current content.
 # Cleared when all steps are completed or the user dismisses the plan.

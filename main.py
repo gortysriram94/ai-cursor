@@ -440,6 +440,13 @@ def main():
     except Exception as _pe:
         log(f"[PERMISSIONS] load failed: {_pe}")
 
+    # ── Load journal ──────────────────────────────────────────────────────────
+    try:
+        from journal import load_from_disk as _load_journal
+        _load_journal()
+    except Exception as _je:
+        log(f"[JOURNAL] startup load failed: {_je}")
+
     # ── Autonomous observability ──────────────────────────────────────────────
     from observability import start_observability
     start_observability()

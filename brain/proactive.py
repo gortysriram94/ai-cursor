@@ -170,6 +170,12 @@ def _generate(
             state.proactive_gen_count += 1 if result else 0
             if not result:
                 state.proactive_err_count += 1
+            if result:
+                try:
+                    from journal import update_last_action
+                    update_last_action(action, result)
+                except Exception:
+                    pass
 
         # Generate approval chain for content types requiring step-by-step sign-off
         if result:

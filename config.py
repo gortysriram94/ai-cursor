@@ -69,6 +69,7 @@ CUSTOM_ACTIONS_FILE  = APP_DIR / "pushpa_custom_actions.json"
 ACTION_RANKINGS_FILE = APP_DIR / "pushpa_action_rankings.json"
 AUDIT_LOG_FILE       = APP_DIR / "pushpa_audit.jsonl"
 PERMISSIONS_FILE     = APP_DIR / "pushpa_permissions.json"
+JOURNAL_FILE         = APP_DIR / "pushpa_journal.jsonl"
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
