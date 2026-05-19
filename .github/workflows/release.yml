@@ -132,66 +132,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Python 3.11 + tkinter (arm64)
+      - name: Install Python 3.11 (arm64)
         if: matrix.arch == 'arm64'
-        run: |
-          brew install python@3.11 python-tk@3.11
-          echo "$(brew --prefix)/opt/python@3.11/bin" >> $GITHUB_PATH
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "arm64"
 
-      - name: Install Python 3.11 universal2 (x86_64 build)
+      - name: Install Python 3.11 (x86_64)
         if: matrix.arch == 'x86_64'
-        run: |
-          # Python.org installer ships as universal2 — we run it under Rosetta
-          curl -L "https://www.python.org/ftp/python/3.11.11/python-3.11.11-macos11.pkg" \
-            -o /tmp/python.pkg
-          sudo installer -pkg /tmp/python.pkg -target /
-          echo "/Library/Frameworks/Python.framework/Versions/3.11/bin" >> $GITHUB_PATH
-          # Verify we get the right arch when running under Rosetta
-          echo "Native: $(python3.11 -c 'import platform; print(platform.machine())')"
-          echo "Rosetta: $(arch -x86_64 python3.11 -c 'import platform; print(platform.machine())')"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: "x64"
+
+      - name: Install tkinter (arm64)
+        if: matrix.arch == 'arm64'
+        run: brew install python-tk@3.11
 
       - name: Install tkinter (x86_64)
         if: matrix.arch == 'x86_64'
         run: |
           brew install python-tk@3.11
-          # Link Homebrew's tkinter into the Python.org framework
+          # Link Homebrew's tkinter into the setup-python site-packages
           TK_PATH=$(brew --prefix python-tk@3.11)/libexec
-          SITE="/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages"
+          SITE=$(python3.11 -c "import site; print(site.getsitepackages()[0])")
           ln -sf "$TK_PATH"/_tkinter.cpython-311-darwin.so "$SITE"/ 2>/dev/null || true
           ln -sf "$TK_PATH"/tkinter "$SITE"/ 2>/dev/null || true
 
       - name: Install dependencies (native arch)
         run: |
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            # Run pip under Rosetta so it fetches x86_64 wheels
-            arch -x86_64 python3.11 -m pip install --upgrade pip
-            arch -x86_64 python3.11 -m pip install \
-              "pillow>=10.0" \
-              "cryptography" \
-              "pynput" \
-              pyinstaller requests pyautogui pyperclip pdfplumber
-            arch -x86_64 python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa \
-              pyobjc-framework-Quartz pyobjc-framework-ApplicationServices \
-              2>/dev/null || echo "pyobjc skipped"
-          else
-            python3.11 -m pip install --upgrade pip
-            python3.11 -m pip install \
-              "pillow>=10.0" \
-              "cryptography" \
-              "pynput" \
-              pyinstaller requests pyautogui pyperclip pdfplumber
-            python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa \
-              pyobjc-framework-Quartz pyobjc-framework-ApplicationServices \
-              2>/dev/null || echo "pyobjc skipped"
-          fi
+          python3.11 -m pip install --upgrade pip
+          python3.11 -m pip install \
+            "pillow>=10.0" \
+            "cryptography" \
+            "pynput" \
+            pyinstaller requests pyautogui pyperclip pdfplumber
+          python3.11 -m pip install pyobjc-core pyobjc-framework-Cocoa \
+            pyobjc-framework-Quartz pyobjc-framework-ApplicationServices \
+            2>/dev/null || echo "pyobjc skipped"
 
       - name: Verify tkinter
-        run: |
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            arch -x86_64 python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
-          else
-            python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
-          fi
+        run: python3.11 -c "import tkinter; print('tkinter OK:', tkinter.TkVersion)"
 
       - name: Download Ollama binary
         run: |
@@ -214,12 +196,7 @@ jobs:
       - name: Build native ${{ matrix.arch }} with PyInstaller
         env:
           TARGET_ARCH: ${{ matrix.arch }}
-        run: |
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            arch -x86_64 python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
-          else
-            python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
-          fi
+        run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
 
       - name: Verify binary architecture
         run: |
