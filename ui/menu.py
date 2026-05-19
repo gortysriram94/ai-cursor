@@ -502,12 +502,14 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
 
     def _run_query(q: str):
         _show_loading("thinking…")
+        # Get streaming callbacks on the main thread — tkinter widgets
+        # must only be created/modified from the main thread.
+        on_tok, on_done, on_err = _show_streaming("custom")
         full_text = (ctx.raw_text[:2000] if ctx and ctx.raw_text else "")
 
         def _start():
             from ai import call_ai_streaming
             try:
-                on_tok, on_done, on_err = _show_streaming("custom")
                 call_ai_streaming(
                     full_text, "custom", "direct",
                     on_tok, on_done, on_err,
@@ -541,12 +543,13 @@ def show_menu(root: tk.Tk, cx: int, cy: int,
             return
 
         _show_loading(f"{action_key.replace('_', ' ')}…")
+        # Get streaming callbacks on the main thread before spawning worker.
+        on_tok, on_done, on_err = _show_streaming(action_key)
         full_text = (ctx.raw_text[:2000] if ctx and ctx.raw_text else "")
 
         def _start():
             from ai import call_ai_streaming
             try:
-                on_tok, on_done, on_err = _show_streaming(action_key)
                 call_ai_streaming(
                     full_text, action_key, "direct",
                     on_tok, on_done, on_err,
