@@ -222,8 +222,13 @@ jobs:
 
       - name: Install tkinter
         run: |
-          brew link --overwrite python@3.11 || true
+          # Remove symlinks created by actions/setup-python (python.org framework)
+          # so Homebrew can install python@3.11 without a link conflict.
+          rm -f /usr/local/bin/2to3-3.11 /usr/local/bin/idle3.11 \
+                /usr/local/bin/pydoc3.11 /usr/local/bin/python3.11 \
+                /usr/local/bin/python3.11-config
           brew install python-tk@3.11
+          brew link --overwrite python@3.11 || true
           TK_PATH=$(brew --prefix python-tk@3.11)/libexec
           SITE=$(python3.11 -c "import site; print(site.getsitepackages()[0])")
           ln -sf "$TK_PATH"/_tkinter.cpython-311-darwin.so "$SITE"/ 2>/dev/null || true
