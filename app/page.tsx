@@ -352,11 +352,78 @@ function PlatformBtn({ label, icon, href, size = "lg", className = "" }: { label
 const WIN_ICON = <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>;
 const MAC_ICON = <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>;
 
+function MacDropdown({ size = "lg", className = "" }: { size?: "lg" | "sm"; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [dl, setDl]     = useState("");
+  const ref             = useRef<HTMLDivElement>(null);
+  const base = size === "lg"
+    ? "rounded-xl px-7 py-3.5 text-sm font-semibold"
+    : "rounded-lg px-4 py-2.5 text-sm font-medium";
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  function handleDownload(variant: string) {
+    setDl(variant);
+    setOpen(false);
+    setTimeout(() => setDl(""), 6000);
+  }
+
+  return (
+    <div ref={ref} className={`relative ${className}`}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`${base} inline-flex items-center gap-2 bg-[var(--accent)] text-white shadow-lg hover:bg-[var(--accent-dim)] active:scale-95 transition-all`}
+      >
+        {dl ? (
+          <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white shrink-0" />Downloading…</>
+        ) : (
+          <>{MAC_ICON}{DL_ICON}macOS <span className="ml-1 opacity-70 text-xs">▾</span></>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-2 z-50 w-52 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl overflow-hidden">
+          <a
+            href="/api/download?platform=macos-arm64"
+            onClick={() => handleDownload("arm64")}
+            className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--panel)] transition-colors"
+          >
+            <span className="text-lg">🍎</span>
+            <div>
+              <div className="text-sm font-semibold text-[var(--text)]">Apple Silicon</div>
+              <div className="text-xs text-[var(--muted)]">M1 · M2 · M3 · M4</div>
+            </div>
+          </a>
+          <div className="h-px bg-[var(--border)]" />
+          <a
+            href="/api/download?platform=macos-intel"
+            onClick={() => handleDownload("intel")}
+            className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--panel)] transition-colors"
+          >
+            <span className="text-lg">💻</span>
+            <div>
+              <div className="text-sm font-semibold text-[var(--text)]">Intel</div>
+              <div className="text-xs text-[var(--muted)]">x86_64</div>
+            </div>
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DownloadBtn({ size = "lg", className = "" }: { size?: "lg" | "sm"; className?: string }) {
   return (
     <div className={`flex flex-wrap items-center gap-3 ${className}`}>
       <PlatformBtn label="Windows" icon={WIN_ICON} href="/api/download?platform=windows" size={size} />
-      <PlatformBtn label="macOS"   icon={MAC_ICON} href="/api/download?platform=macos"   size={size} />
+      <MacDropdown size={size} />
     </div>
   );
 }

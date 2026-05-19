@@ -36,8 +36,14 @@ export async function GET(req: NextRequest) {
 
   let url: string;
 
-  if (platform === "macos") {
-    const asset = assets.find(a => a.name.endsWith(".dmg"))
+  if (platform === "macos-intel") {
+    const asset = assets.find(a => a.name === "AIcursor-macos-intel.dmg")
+               ?? assets.find(a => a.name.includes("intel") && a.name.endsWith(".dmg"))
+               ?? assets.find(a => a.name.includes("intel") && a.name.endsWith(".zip"));
+    url = asset?.url ?? `${FALLBACK_BASE}/AIcursor-macos-intel.dmg`;
+  } else if (platform === "macos" || platform === "macos-arm64") {
+    const asset = assets.find(a => a.name === "AIcursor-macos.dmg")
+               ?? assets.find(a => !a.name.includes("intel") && a.name.endsWith(".dmg"))
                ?? assets.find(a => a.name.toLowerCase().includes("mac") && a.name.endsWith(".zip"));
     url = asset?.url ?? `${FALLBACK_BASE}/AIcursor-macos.dmg`;
   } else {
