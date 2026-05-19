@@ -165,9 +165,9 @@ jobs:
           name: macos-arm64-app
           path: dist/AIcursor.app
 
-  # ── macOS x86_64 (Intel) ────────────────────────────────────────────────────
+  # ── macOS x86_64 (cross-compiled on Apple Silicon) ──────────────────────────
   build-macos-intel:
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
@@ -200,7 +200,7 @@ jobs:
           echo "APP_VERSION = \"${ver#v}\"" > _version.py
 
       - name: Build with PyInstaller (x86_64)
-        run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm
+        run: python3.11 -m PyInstaller pushpa_macos.spec --noconfirm --target-arch x86_64
 
       - uses: actions/upload-artifact@v4
         with:
